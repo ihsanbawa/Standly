@@ -49,37 +49,3 @@ async def on_voice_state_update(member, before, after):
 
 bot.run(TOKEN)
 
-
-
-
-# @bot.event
-# async def on_ready():
-#     print(f'{bot.user.name} has connected to Discord!')
-
-# @tasks.loop(hours=24)  # Reset the flag every 24 hours
-# async def reset_daily_flag():
-#     global has_logged_today
-#     has_logged_today = False
-
-# @bot.event
-# async def on_voice_state_update(member, before, after):
-#     global has_logged_today
-#     if has_logged_today:
-#         return
-
-#     voice_channel = after.channel
-#     if voice_channel and len(voice_channel.members) == 1:  # Change number as needed
-#         # Add your Beeminder API call logic here
-#         # Example POST request
-#         response = requests.post('https://www.beeminder.com/api/v1/...', json={...})
-#         if response.status_code == 200:
-#             has_logged_today = True
-#             # Send a confirmation message to a channel
-#             channel = bot.get_channel(YOUR_CHANNEL_ID)  # Replace with your channel ID
-#             await channel.send('Standup logged for today!')
-
-# # Start the tasks
-# reset_daily_flag.start()
-
-# # Run the bot
-# bot.run(TOKEN)
