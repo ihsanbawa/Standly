@@ -1,7 +1,13 @@
-import discord
-from discord.ext import commands, tasks
-import requests
 import os
+from dotenv import load_dotenv
+import discord
+from discord.ext import commands
+
+# Load environment variables from .env file
+load_dotenv()
+print(os.getenv('DISCORD_BOT_TOKEN'))
+
+
 
 #my invitation link: https://discord.com/api/oauth2/authorize?client_id=1187087126219726988&permissions=388160&scope=bot+applications.commands
 
@@ -9,9 +15,12 @@ import os
 # Define the intents your bot requires
 intents = discord.Intents.default()  # This enables the default intent
 intents.members = True  # Enable the member intent if you need to track join/leave events
+intents.message_content = True  # Enable the message content intent
 
-# Bot setup
-TOKEN = 'MTE4NzA4NzEyNjIxOTcyNjk4OA.GRVWu1.ANkHGqrZa4WNfnp702I4nzg6siitAN24kZtG7s'  # Replace with your bot's token
+
+# Accessing the bot token from an environment variable
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+# TOKEN = 'MTE4NzA4NzEyNjIxOTcyNjk4OA.GOGkTy.ybhVHEGhFlpM-eAI0ENMQYvYTbqEc5jtuMRcYQ'
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variable to store the ID of the monitored channel
@@ -37,6 +46,10 @@ async def list_channels(ctx):
     channels = ctx.guild.voice_channels
     channel_list = '\n'.join([f"- {channel.name}" for channel in channels])
     await ctx.send(f"Voice Channels:\n{channel_list}")
+
+@bot.command(name='test', help='Test command')
+async def test_command(ctx):
+    await ctx.send("Test command is working!")
 
 @bot.event
 async def on_voice_state_update(member, before, after):
