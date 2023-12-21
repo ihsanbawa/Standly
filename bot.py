@@ -20,7 +20,6 @@ intents.message_content = True  # Enable the message content intent
 
 # Accessing the bot token from an environment variable
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-# TOKEN = 'MTE4NzA4NzEyNjIxOTcyNjk4OA.GOGkTy.ybhVHEGhFlpM-eAI0ENMQYvYTbqEc5jtuMRcYQ'
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variable to store the ID of the monitored channel
