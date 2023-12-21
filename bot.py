@@ -4,32 +4,44 @@ import discord
 from discord.ext import commands
 import aiohttp
 import time
+import json
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
-print(os.getenv('DISCORD_BOT_TOKEN'))
-
-#my invitation link: https://discord.com/api/oauth2/authorize?client_id=1187087126219726988&permissions=388160&scope=bot+applications.commands
-
-
-# Define the intents your bot requires
-intents = discord.Intents.default()  # This enables the default intent
-intents.members = True  # Enable the member intent if you need to track join/leave events
-intents.message_content = True  # Enable the message content intent
-
-
-# Accessing the bot token from an environment variable
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+SANDBOX_MODE = os.getenv('SANDBOX_MODE') == 'True'  # Retrieve sandbox mode from environment variable
+
+
+# Define the intents
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True
+
+# Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Global variables
-monitored_channel_id = None
-monitored_channel_name = None  # Store the name of the monitored channel
-user_data = {}  # Dictionary to store user data
-last_log_date = None  # Variable to track the last logged date
-sandbox_mode = True  # Set to False to use the live Beeminder API
+# Path to the JSON data file
+data_file = 'data.json'
 
-async def log_standups_internal():
+# Function to read data from the JSON file
+def read_data():
+    try:
+        with open(data_file, 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+# Function to write data to the JSON file
+def write_data(data):
+    with open(data_file, 'w') as file:
+        json.dump(data, file, indent=4)
+
+# Function to log standups internally
+async def log_standups_internal(guild_id):
+    data = read_data()
+    guild_data = data.get(guild_id, {})
+    user_data = guild_data.get("user_data", {})
+
     if not user_data:
         print("No user data available.")
         return
@@ -39,16 +51,16 @@ async def log_standups_internal():
 
     async with aiohttp.ClientSession() as session:
         for username, authToken in user_data.items():
-            apiUrl = "https://www.beeminder.com/api/v1/users/{}/goals/standup/datapoints.json".format(username)
+            apiUrl = f"https://www.beeminder.com/api/v1/users/{username}/goals/standup/datapoints.json"
             postData = {
                 'auth_token': authToken,
                 'timestamp': int(time.time()),
                 'value': 1,
                 'comment': 'logged via discord bot'
             }
-
-            # Check if sandbox mode is enabled
-            if sandbox_mode:
+            
+            if SANDBOX_MODE:
+                # Mock POST for demonstration
                 print(f"Mock POST to {apiUrl} with data: {postData}")
                 successful_requests += 1
             else:
@@ -62,69 +74,77 @@ async def log_standups_internal():
                 except Exception as e:
                     errors.append(f"Exception for {username}: {str(e)}")
 
-    # Print the response and errors
     if successful_requests == len(user_data):
         print("Standup logged successfully for all users.")
     else:
         error_messages = '\n'.join(errors)
         print(f"Errors occurred:\n{error_messages}")
 
-            
-
+# Event when bot is ready
 @bot.event
 async def on_ready():
     print(f'{bot.user.name} has connected to Discord!')
 
+# Command to set the monitored channel
 @bot.command(name='setchannel', help='Set a channel to be monitored by the bot')
 async def set_channel(ctx, *, channel_name: str):
-    global monitored_channel_id, monitored_channel_name
-
+    guild_id = str(ctx.guild.id)
     voice_channel = discord.utils.get(ctx.guild.voice_channels, name=channel_name)
+
     if voice_channel:
-        monitored_channel_id = voice_channel.id
-        monitored_channel_name = channel_name  # Store the name for later use
+        data = read_data()
+        if guild_id not in data:
+            data[guild_id] = {}
+        data[guild_id]["monitored_channel_id"] = voice_channel.id
+        data[guild_id]["monitored_channel_name"] = channel_name
+        write_data(data)
+
         await ctx.send(f"Voice channel '{channel_name}' is now being monitored.")
     else:
         await ctx.send(f"No voice channel named '{channel_name}' found.")
 
-
+# Command to list all voice channels in the server
 @bot.command(name='listchannels', help='List all voice channels in the server')
 async def list_channels(ctx):
     channels = ctx.guild.voice_channels
     channel_list = '\n'.join([f"- {channel.name}" for channel in channels])
     await ctx.send(f"Voice Channels:\n{channel_list}")
 
-@bot.command(name='test', help='Test command')
-async def test_command(ctx):
-    await ctx.send("Test command is working!")
-
+# Command to add a user with their authToken
 @bot.command(name='adduser', help='Add a user with their authToken. Usage: !adduser [username] [authToken]')
 async def add_user(ctx, username: str, authToken: str):
-    # Check if the command is sent in a DM for security
-    if not isinstance(ctx.channel, discord.channel.DMChannel):
-        await ctx.send("Please send this information in a direct message for security.")
-        return
-        # Check if the user provided both username and authToken
     if username is None or authToken is None:
-        await ctx.send("Please provide both a username and an authToken. Usage: `!adduser [username] [authToken]`")
+        await ctx.send("Please provide both a username and an authToken.")
         return
-    # Add or update the user data
-    user_data[username] = authToken
-    print(user_data)
+
+    guild_id = str(ctx.guild.id)
+    data = read_data()
+    if guild_id not in data:
+        data[guild_id] = {"user_data": {}}
+    data[guild_id]["user_data"][username] = authToken
+    write_data(data)
+
     await ctx.send(f"User {username} added/updated successfully.")
 
+# Command to delete a user
 @bot.command(name='deleteuser', help='Delete a user from the bot. Usage: !deleteuser [username]')
 async def delete_user(ctx, username: str):
-    # Check if the user exists in user_data
-    if username in user_data:
-        del user_data[username]
+    guild_id = str(ctx.guild.id)
+    data = read_data()
+    if guild_id in data and username in data[guild_id].get("user_data", {}):
+        del data[guild_id]["user_data"][username]
+        write_data(data)
         await ctx.send(f"User {username} has been removed.")
     else:
         await ctx.send(f"User {username} not found in stored data.")
 
-
+# Command to list all users stored in the bot
 @bot.command(name='listusers', help='List all users stored in the bot')
 async def list_users(ctx):
+    guild_id = str(ctx.guild.id)
+    data = read_data()
+    user_data = data.get(guild_id, {}).get("user_data", {})
+
     if not user_data:
         await ctx.send("No users are currently stored.")
         return
@@ -132,9 +152,13 @@ async def list_users(ctx):
     users_list = '\n'.join([f"- {username}" for username in user_data])
     await ctx.send(f"Stored users:\n{users_list}")
 
-
+# Command to display Beeminder graphs for all users
 @bot.command(name='graphs', help='Display Beeminder graphs for all users')
 async def graphs(ctx):
+    guild_id = str(ctx.guild.id)
+    data = read_data()
+    user_data = data.get(guild_id, {}).get("user_data", {})
+
     if not user_data:
         await ctx.send("No user data available.")
         return
@@ -143,34 +167,35 @@ async def graphs(ctx):
         graph_url = f"https://www.beeminder.com/{username}/standup.png"
         await ctx.send(f"Graph for {username}: {graph_url}")
 
+# Command to log standups to Beeminder for all users
 @bot.command(name='logstandups', help='Log standups to Beeminder for all users')
 async def log_standups(ctx):
-    await log_standups_internal()
+    guild_id = str(ctx.guild.id)
+    await log_standups_internal(guild_id)
     await ctx.send("Attempted to log standups for all users.")
 
-
+# Event triggered when a user's voice state updates
 @bot.event
 async def on_voice_state_update(member, before, after):
-    global monitored_channel_id, monitored_channel_name, last_log_date
+    if after.channel:
+        guild_id = str(after.channel.guild.id)
+        data = read_data()
+        guild_data = data.get(guild_id, {})
+        
+        # Define text_channel here
+        text_channel = discord.utils.get(after.channel.guild.text_channels, name=guild_data.get("monitored_channel_name"))
 
-    if after.channel and after.channel.id == monitored_channel_id:
-        today = time.strftime("%Y-%m-%d")
-        text_channel = discord.utils.get(after.channel.guild.text_channels, name=monitored_channel_name)
+        if guild_data.get("monitored_channel_id") == after.channel.id:
+            today = time.strftime("%Y-%m-%d")
+            if len(after.channel.members) == len(guild_data.get("user_data", {})) and guild_data.get("last_log_date") != today:
+                await log_standups_internal(guild_id)
+                guild_data["last_log_date"] = today
+                write_data(data)
 
-        if len(after.channel.members) == len(user_data) and (last_log_date != today):
-            await log_standups_internal()
-            last_log_date = today
-
-            if text_channel:
-                await text_channel.send(f"Standup logged for users: {', '.join(user_data.keys())} on {today}")
-            else:
-                print("Corresponding text channel not found.")
-
-        elif last_log_date == today and text_channel:
-            await text_channel.send("Standup has already been logged for today.")
-
-
+                if text_channel:
+                    await text_channel.send(f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}")
+            elif guild_data.get("last_log_date") == today and text_channel:
+                await text_channel.send("Standup has already been logged for today.")
 
 
 bot.run(TOKEN)
-
