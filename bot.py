@@ -194,8 +194,7 @@ async def on_voice_state_update(member, before, after):
 
                 if text_channel:
                     await text_channel.send(f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}")
-            elif guild_data.get("last_log_date") == today and text_channel:
-                await text_channel.send("Standup has already been logged for today.")
+
 
 
 bot.run(TOKEN)
