@@ -5,11 +5,13 @@ from discord.ext import commands
 import aiohttp
 import time
 import json
+import threading
+from app import app
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-SANDBOX_MODE = os.getenv('SANDBOX_MODE') == 'True'  # Retrieve sandbox mode from environment variable
+SANDBOX_MODE = os.getenv('SANDBOX_MODE') == 'True'
 
 
 # Define the intents
@@ -196,5 +198,14 @@ async def on_voice_state_update(member, before, after):
                     await text_channel.send(f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}")
 
 
+def run():
+    app.run(host='0.0.0.0', port=8080)
 
-bot.run(TOKEN)
+if __name__ == "__main__":
+    # Start the Flask app in a separate thread
+    t = threading.Thread(target=run)
+    t.start()
+
+    # Start the Discord bot
+    bot.run(TOKEN)
+
