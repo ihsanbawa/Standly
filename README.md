@@ -1,6 +1,3 @@
-Absolutely! Adding emojis can make your README more engaging and visually appealing. Here's an enhanced version of your `README.md` for the "Standly" Discord bot, now with emojis:
-
-```markdown
 # 🤖 Standly - A Discord Bot for Standup Logging
 
 Standly is a Discord bot 🤖 designed to facilitate standup logging for teams. It integrates with the Beeminder API 📊 to log standup data points and provides various Discord commands for managing standup sessions within a guild.
