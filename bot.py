@@ -176,6 +176,7 @@ async def list_users(ctx):
 # Command to display Beeminder graphs for all users
 @bot.command(name='graphs', help='Display Beeminder graphs for all users')
 async def graphs(ctx):
+  timestamp = int(time.time())
   guild_id = str(ctx.guild.id)
   data = read_data()
   user_data = data.get(guild_id, {}).get("user_data", {})
@@ -185,7 +186,7 @@ async def graphs(ctx):
     return
 
   for username in user_data:
-    graph_url = f"https://www.beeminder.com/{username}/standup.png"
+    graph_url = f"https://www.beeminder.com/{username}/standup.png?{timestamp}"
     await ctx.send(f"Graph for {username}: {graph_url}")
 
 
