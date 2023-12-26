@@ -174,7 +174,7 @@ async def list_users(ctx):
 
 
 # Command to toggle sandbox mode
-@bot.command(name='togglesandbox', help='Toggle the sandbox mode')
+@bot.command(name='sandbox', help='Toggle the sandbox mode')
 @commands.has_permissions(administrator=True)
 async def toggle_sandbox_mode(ctx):
     global SANDBOX_MODE
