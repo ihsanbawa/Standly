@@ -14,7 +14,7 @@ from app import app
 # SANDBOX_MODE = os.getenv('SANDBOX_MODE') == 'True'
 
 TOKEN = os.environ['DISCORD_BOT_TOKEN']
-SANDBOX_MODE = os.environ['SANDBOX_MODE'] == 'True'
+SANDBOX_MODE = os.environ['SANDBOX_MODE']
 
 # Define the intents
 intents = discord.Intents.default()
@@ -171,6 +171,15 @@ async def list_users(ctx):
 
   users_list = '\n'.join([f"- {username}" for username in user_data])
   await ctx.send(f"Stored users:\n{users_list}")
+
+
+# Command to toggle sandbox mode
+@bot.command(name='togglesandbox', help='Toggle the sandbox mode')
+@commands.has_permissions(administrator=True)
+async def toggle_sandbox_mode(ctx):
+    global SANDBOX_MODE
+    SANDBOX_MODE = not SANDBOX_MODE
+    await ctx.send(f"Sandbox mode is now {'True' if SANDBOX_MODE else 'False'}.")
 
 
 # Command to display Beeminder graphs for all users
