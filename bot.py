@@ -21,6 +21,7 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
+
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -44,7 +45,7 @@ def write_data(data):
 
 
 # Function to log standups internally
-async def log_standups_internal(guild_id):
+async def log_standups_internal(guild_id,channel):
   data = read_data()
   guild_data = data.get(guild_id, {})
   user_data = guild_data.get("user_data", {})
@@ -68,7 +69,8 @@ async def log_standups_internal(guild_id):
 
       if SANDBOX_MODE:
         # Mock POST for demonstration
-        print(f"Mock POST to {apiUrl} with data: {postData}")
+        await channel.send(f"Mock POST to {apiUrl} with data: {postData}")
+
         successful_requests += 1
       else:
         try:
@@ -207,31 +209,54 @@ async def log_standups(ctx):
   await ctx.send("Attempted to log standups for all users.")
 
 
-# Event triggered when a user's voice state updates
 @bot.event
 async def on_voice_state_update(member, before, after):
-  if after.channel:
-    guild_id = str(after.channel.guild.id)
-    data = read_data()
-    guild_data = data.get(guild_id, {})
+    print(f"Voice state update detected for member: {member.name}")
 
-    # Define text_channel here
-    text_channel = discord.utils.get(
-        after.channel.guild.text_channels,
-        name=guild_data.get("monitored_channel_name"))
+    # Check if the user has joined a new channel or left a channel
+    if before.channel != after.channel:
+        print(f"Member {member.name} changed channels.")
 
-    if guild_data.get("monitored_channel_id") == after.channel.id:
-      today = time.strftime("%Y-%m-%d")
-      if len(after.channel.members) == len(guild_data.get(
-          "user_data", {})) and guild_data.get("last_log_date") != today:
-        await log_standups_internal(guild_id)
-        guild_data["last_log_date"] = today
-        write_data(data)
+        # Check if the user has joined a channel (and not just left one)
+        if after.channel:
+            print(f"Member {member.name} joined channel: {after.channel.name}")
 
-        if text_channel:
-          await text_channel.send(
-              f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}"
-          )
+            guild_id = str(after.channel.guild.id)
+            data = read_data()
+            guild_data = data.get(guild_id, {})
+
+            # Attempt to find the monitored text channel
+            text_channel = discord.utils.get(
+                after.channel.guild.text_channels,
+                name=guild_data.get("monitored_channel_name"))
+
+            if text_channel:
+                print(f"Found monitored text channel: {text_channel.name}")
+            else:
+                print("Monitored text channel not found.")
+
+            # Check if the newly joined channel is the monitored channel
+            if guild_data.get("monitored_channel_id") == after.channel.id:
+                print(f"Member {member.name} joined the monitored channel.")
+
+                today = time.strftime("%Y-%m-%d")
+                if len(after.channel.members) == len(guild_data.get("user_data", {})) and guild_data.get("last_log_date") != today:
+                    print("Logging standup...")
+                    await log_standups_internal(guild_id, text_channel)
+                    guild_data["last_log_date"] = today
+                    write_data(data)
+
+                    if text_channel:
+                        await text_channel.send(
+                            f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}")
+                        print("Standup log message sent.")
+                else:
+                    print("Conditions for logging standup not met.")
+        else:
+            print(f"Member {member.name} left channel: {before.channel.name}")
+    else:
+        print(f"Member {member.name} had a voice state change in the same channel.")
+
 
 
 def run():
