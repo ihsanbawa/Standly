@@ -201,12 +201,21 @@ async def graphs(ctx):
 
 
 # Command to log standups to Beeminder for all users
-@bot.command(name='logstandups',
-             help='Log standups to Beeminder for all users')
+@bot.command(name='logstandups', help='Log standups to Beeminder for all users')
 async def log_standups(ctx):
-  guild_id = str(ctx.guild.id)
-  await log_standups_internal(guild_id)
-  await ctx.send("Attempted to log standups for all users.")
+    guild_id = str(ctx.guild.id)
+    # Retrieve the monitored text channel from the guild data
+    data = read_data()
+    guild_data = data.get(guild_id, {})
+    channel_name = guild_data.get("monitored_channel_name")
+    channel = discord.utils.get(ctx.guild.text_channels, name=channel_name)
+    # If the channel is found, pass it to the log_standups_internal function
+    if channel:
+        await log_standups_internal(guild_id, channel)
+        await ctx.send("Attempted to log standups for all users.")
+    else:
+        await ctx.send("Monitored text channel not found.")
+
 
 
 @bot.event
