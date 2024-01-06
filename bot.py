@@ -7,6 +7,7 @@ import time
 import json
 import threading
 from app import app
+from wuphf import handle_wuphf
 
 # Load environment variables
 # load_dotenv()
@@ -20,7 +21,6 @@ SANDBOX_MODE = os.environ['SANDBOX_MODE']
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-
 
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -45,7 +45,7 @@ def write_data(data):
 
 
 # Function to log standups internally
-async def log_standups_internal(guild_id,channel):
+async def log_standups_internal(guild_id, channel):
   data = read_data()
   guild_data = data.get(guild_id, {})
   user_data = guild_data.get("user_data", {})
@@ -178,9 +178,9 @@ async def list_users(ctx):
 # Command to toggle sandbox mode
 @bot.command(name='sandbox', help='Toggle the sandbox mode')
 async def toggle_sandbox_mode(ctx):
-    global SANDBOX_MODE
-    SANDBOX_MODE = not SANDBOX_MODE
-    await ctx.send(f"Sandbox mode is now {'True' if SANDBOX_MODE else 'False'}.")
+  global SANDBOX_MODE
+  SANDBOX_MODE = not SANDBOX_MODE
+  await ctx.send(f"Sandbox mode is now {'True' if SANDBOX_MODE else 'False'}.")
 
 
 # Command to display Beeminder graphs for all users
@@ -201,70 +201,87 @@ async def graphs(ctx):
 
 
 # Command to log standups to Beeminder for all users
-@bot.command(name='logstandups', help='Log standups to Beeminder for all users')
+@bot.command(name='logstandups',
+             help='Log standups to Beeminder for all users')
 async def log_standups(ctx):
-    guild_id = str(ctx.guild.id)
-    # Retrieve the monitored text channel from the guild data
-    data = read_data()
-    guild_data = data.get(guild_id, {})
-    channel_name = guild_data.get("monitored_channel_name")
-    channel = discord.utils.get(ctx.guild.text_channels, name=channel_name)
-    # If the channel is found, pass it to the log_standups_internal function
-    if channel:
-        await log_standups_internal(guild_id, channel)
-        await ctx.send("Manually logged all standups for all users.")
-    else:
-        await ctx.send("Monitored text channel not found.")
-
+  guild_id = str(ctx.guild.id)
+  # Retrieve the monitored text channel from the guild data
+  data = read_data()
+  guild_data = data.get(guild_id, {})
+  channel_name = guild_data.get("monitored_channel_name")
+  channel = discord.utils.get(ctx.guild.text_channels, name=channel_name)
+  # If the channel is found, pass it to the log_standups_internal function
+  if channel:
+    await log_standups_internal(guild_id, channel)
+    await ctx.send("Manually logged all standups for all users.")
+  else:
+    await ctx.send("Monitored text channel not found.")
 
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    print(f"Voice state update detected for member: {member.name}")
+  print(f"Voice state update detected for member: {member.name}")
 
-    # Check if the user has joined a new channel or left a channel
-    if before.channel != after.channel:
-        print(f"Member {member.name} changed channels.")
+  # Check if the user has joined a new channel or left a channel
+  if before.channel != after.channel:
+    print(f"Member {member.name} changed channels.")
 
-        # Check if the user has joined a channel (and not just left one)
-        if after.channel:
-            print(f"Member {member.name} joined channel: {after.channel.name}")
+    # Check if the user has joined a channel (and not just left one)
+    if after.channel:
+      print(f"Member {member.name} joined channel: {after.channel.name}")
 
-            guild_id = str(after.channel.guild.id)
-            data = read_data()
-            guild_data = data.get(guild_id, {})
+      guild_id = str(after.channel.guild.id)
+      data = read_data()
+      guild_data = data.get(guild_id, {})
 
-            # Attempt to find the monitored text channel
-            text_channel = discord.utils.get(
-                after.channel.guild.text_channels,
-                name=guild_data.get("monitored_channel_name"))
+      # Attempt to find the monitored text channel
+      text_channel = discord.utils.get(
+          after.channel.guild.text_channels,
+          name=guild_data.get("monitored_channel_name"))
 
-            if text_channel:
-                print(f"Found monitored text channel: {text_channel.name}")
-            else:
-                print("Monitored text channel not found.")
+      if text_channel:
+        print(f"Found monitored text channel: {text_channel.name}")
+      else:
+        print("Monitored text channel not found.")
 
-            # Check if the newly joined channel is the monitored channel
-            if guild_data.get("monitored_channel_id") == after.channel.id:
-                print(f"Member {member.name} joined the monitored channel.")
+      # Check if the newly joined channel is the monitored channel
+      if guild_data.get("monitored_channel_id") == after.channel.id:
+        print(f"Member {member.name} joined the monitored channel.")
 
-                today = time.strftime("%Y-%m-%d")
-                if len(after.channel.members) == len(guild_data.get("user_data", {})) and guild_data.get("last_log_date") != today:
-                    print("Logging standup...")
-                    await log_standups_internal(guild_id, text_channel)
-                    guild_data["last_log_date"] = today
-                    write_data(data)
+        today = time.strftime("%Y-%m-%d")
+        if len(after.channel.members) == len(guild_data.get(
+            "user_data", {})) and guild_data.get("last_log_date") != today:
+          print("Logging standup...")
+          await log_standups_internal(guild_id, text_channel)
+          guild_data["last_log_date"] = today
+          write_data(data)
 
-                    if text_channel:
-                        await text_channel.send(
-                            f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}")
-                        print("Standup log message sent.")
-                else:
-                    print("Conditions for logging standup not met.")
+          if text_channel:
+            await text_channel.send(
+                f"Standup logged for users: {', '.join(guild_data['user_data'].keys())} on {today}"
+            )
+            print("Standup log message sent.")
         else:
-            print(f"Member {member.name} left channel: {before.channel.name}")
+          print("Conditions for logging standup not met.")
     else:
-        print(f"Member {member.name} had a voice state change in the same channel.")
+      print(f"Member {member.name} left channel: {before.channel.name}")
+  else:
+    print(
+        f"Member {member.name} had a voice state change in the same channel.")
+
+
+@bot.command(name='wuphf', help='Send a WUPHF to a user')
+async def wuphf(ctx, username: str):
+    # Read data from JSON
+    data = read_data()
+
+    # Define your message
+    wuphf_message = "This is a WUPHF from Discord!"
+
+    # Handle the WUPHF
+    response = handle_wuphf(username, data, wuphf_message)
+
+    await ctx.send(response)
 
 
 
