@@ -7,9 +7,25 @@
             "analogayub": "MZPfiJ5es2KJ_sxhPZfT"
         },
         "contact_data": {
+            "dummy": {
+                "phones": [
+                    "9723902207"
+                ],
+                "email": "ib@gmail.com"
+            },
             "ibawa": {
-                "phone": "2149346284",
+                "phones": [
+                    "2149346284",
+                    "9253364840"
+                ],
                 "email": "ihsanbawa@gmail.com"
+            },
+            "dummy2": {
+                "phones": [
+                    "214934682",
+                    "1234567890"
+                ],
+                "email": "ihsan@gmail.com"
             }
         },
         "monitored_channel_id": 1187076403267649650,

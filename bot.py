@@ -7,7 +7,7 @@ import time
 import json
 import threading
 from app import app
-from wuphf import handle_wuphf
+from wuphf import handle_wuphf, add_or_update_contact, get_all_contacts
 
 # Load environment variables
 # load_dotenv()
@@ -272,17 +272,31 @@ async def on_voice_state_update(member, before, after):
 
 @bot.command(name='wuphf', help='Send a WUPHF to a user')
 async def wuphf(ctx, username: str):
-    # Read data from JSON
+  # Read data from JSON
+  data = read_data()
+
+  # Define your message
+  wuphf_message = "This is a WUPHF from Discord!"
+
+  # Handle the WUPHF
+  response = handle_wuphf(ctx.guild.id, username, data, wuphf_message)
+
+  await ctx.send(response)
+
+
+@bot.command(name='addcontact', help='Add or update contact information for a user')
+async def add_contact(ctx, username: str, phones: str, email: str):
     data = read_data()
+    updated_data = add_or_update_contact(data, ctx.guild.id, username, phones, email)
+    write_data(updated_data)
+    await ctx.send(f"Contact information updated for {username}")
 
-    # Define your message
-    wuphf_message = "This is a WUPHF from Discord!"
 
-    # Handle the WUPHF
-    response = handle_wuphf(username, data, wuphf_message)
-
-    await ctx.send(response)
-
+@bot.command(name='listcontacts', help='List all stored contact information')
+async def list_contacts(ctx):
+  data = read_data()
+  contacts = get_all_contacts(data, ctx.guild.id)
+  await ctx.send(contacts)
 
 
 def run():
