@@ -35,7 +35,6 @@ def handle_wuphf(guild_id, user_name, data, wuphf_message):
   if not user_contact:
     return "Contact details for the user not found."
 
-
   # Make a voice call
   phone_numbers = user_contact.get('phones', [])
   for phone_number in phone_numbers:
@@ -45,25 +44,24 @@ def handle_wuphf(guild_id, user_name, data, wuphf_message):
 
   return f"WUPHF sent to {user_name}!"
 
-  return f"WUPHF sent to {user_name}!"
-
 
 def get_all_contacts(data, guild_id):
   guild_data = data.get(str(guild_id), {})
   contact_data = guild_data.get("contact_data", {})
-  print(f"Contact data retrieved: {contact_data}")  # Debug: Check the retrieved contact data
-  
+  print(f"Contact data retrieved: {contact_data}"
+        )  # Debug: Check the retrieved contact data
+
   if not contact_data:
-      return "No contact information available."
-  
+    return "No contact information available."
+
   contact_list = []
   for username, info in contact_data.items():
-      phone_info = ', '.join(info.get('phones', ['N/A']))  # Ensure it's correctly accessing 'phones'
-      contact_info = f"Username: {username}, Phone: {phone_info}, Email: {info.get('email', 'N/A')}"
-      contact_list.append(contact_info)
-  
-  return "\n".join(contact_list)
+    phone_info = ', '.join(info.get(
+        'phones', ['N/A']))  # Ensure it's correctly accessing 'phones'
+    contact_info = f"Username: {username}, Phone: {phone_info}, Email: {info.get('email', 'N/A')}"
+    contact_list.append(contact_info)
 
+  return "\n".join(contact_list)
 
 
 def add_or_update_contact(data, guild_id, username, phones, email):
@@ -71,7 +69,8 @@ def add_or_update_contact(data, guild_id, username, phones, email):
 
   # Split phones into a list if there are multiple, or create a single-element list
   phone_list = phones.split(',') if ',' in phones else [phones]
-  print(f"Processed phone_list: {phone_list}")  # Debug: Check how the list is formed
+  print(f"Processed phone_list: {phone_list}"
+        )  # Debug: Check how the list is formed
 
   guild_data = data.get(str(guild_id), {})
 
@@ -81,8 +80,7 @@ def add_or_update_contact(data, guild_id, username, phones, email):
   guild_data["contact_data"] = contact_data
   data[str(guild_id)] = guild_data
 
-  print(f"Updated contact data for {username}: {contact_data[username]}")  # Debug: Check the final stored data
+  print(f"Updated contact data for {username}: {contact_data[username]}"
+        )  # Debug: Check the final stored data
 
   return data
-
-

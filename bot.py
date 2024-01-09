@@ -15,7 +15,7 @@ from wuphf import handle_wuphf, add_or_update_contact, get_all_contacts
 # SANDBOX_MODE = os.getenv('SANDBOX_MODE') == 'True'
 
 TOKEN = os.environ['DISCORD_BOT_TOKEN']
-SANDBOX_MODE = os.environ['SANDBOX_MODE']
+SANDBOX_MODE = False  # Change to True when you want to enable sandbox mode
 
 # Define the intents
 intents = discord.Intents.default()
@@ -284,12 +284,14 @@ async def wuphf(ctx, username: str):
   await ctx.send(response)
 
 
-@bot.command(name='addcontact', help='Add or update contact information for a user')
+@bot.command(name='addcontact',
+             help='Add or update contact information for a user')
 async def add_contact(ctx, username: str, phones: str, email: str):
-    data = read_data()
-    updated_data = add_or_update_contact(data, ctx.guild.id, username, phones, email)
-    write_data(updated_data)
-    await ctx.send(f"Contact information updated for {username}")
+  data = read_data()
+  updated_data = add_or_update_contact(data, ctx.guild.id, username, phones,
+                                       email)
+  write_data(updated_data)
+  await ctx.send(f"Contact information updated for {username}")
 
 
 @bot.command(name='listcontacts', help='List all stored contact information')
@@ -297,6 +299,29 @@ async def list_contacts(ctx):
   data = read_data()
   contacts = get_all_contacts(data, ctx.guild.id)
   await ctx.send(contacts)
+
+
+@bot.command(name='info',
+             help='Display bot configuration and guild-specific information')
+async def info(ctx):
+  guild_id = str(ctx.guild.id)
+  data = read_data()
+  guild_data = data.get(guild_id, {})
+
+  sandbox_status = 'Enabled' if SANDBOX_MODE else 'Disabled'
+  user_count = len(guild_data.get("user_data", {}))
+  monitored_channel = guild_data.get("monitored_channel_name", "Not set")
+  last_log_date = guild_data.get("last_log_date", "Not available")
+
+  info_message = (
+      f"**Bot Configuration Information**\n"
+      f"- Sandbox Mode: {sandbox_status}\n"
+      f"- Number of Users: {user_count}\n"
+      f"- Monitored Channel: {monitored_channel}\n"
+      f"- Last Log Date: {last_log_date}\n"
+      # Add other information as needed
+  )
+  await ctx.send(info_message)
 
 
 def run():
