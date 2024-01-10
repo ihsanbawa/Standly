@@ -7,7 +7,7 @@ import time
 import json
 import threading
 from app import app
-from wuphf import handle_wuphf, add_or_update_contact, get_all_contacts
+from wuphf import handle_wuphf
 from replit import db
 from database import database
 from datetime import datetime
@@ -29,9 +29,6 @@ intents.message_content = True
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Path to the JSON data file
-data_file = 'data.json'
-
 async def execute_query(query, values={}):
   try:
       return await database.execute(query, values)
@@ -46,9 +43,6 @@ async def fetch_query(query, values={}):
   except Exception as e:
       print(f"Database query error: {e}")
       return []
-
-
-
 
 # Function to log standups internally
 async def log_standups_internal(guild_id, channel):
@@ -122,15 +116,12 @@ async def on_disconnect():
   await database.disconnect()
   print("Disconnected from the database.")
 
-
-
 # Command to toggle sandbox mode
 @bot.command(name='sandbox', help='Toggle the sandbox mode')
 async def toggle_sandbox_mode(ctx):
   global SANDBOX_MODE
   SANDBOX_MODE = not SANDBOX_MODE
   await ctx.send(f"Sandbox mode is now {'True' if SANDBOX_MODE else 'False'}.")
-
 
 @bot.command(name='graphs', help='Display Beeminder graphs for all users')
 async def graphs(ctx):
@@ -185,11 +176,6 @@ async def log_standups(ctx):
     # Call log_standups_internal function with the found channel
     await log_standups_internal(guild_id, channel)
     await ctx.send("Standups logged for all users.")
-
-
-
-
-
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -250,21 +236,14 @@ async def on_voice_state_update(member, before, after):
         print(f"Member {member.name} had a voice state change in the same channel.")
 
 
+@bot.command(name='wuphf', help='Send a WUPHF to a user')
+async def wuphf(ctx, member: discord.Member):
+    # Construct your message
+    wuphf_message = "WUPHF! It's time for standup!"
 
-
-
-# @bot.command(name='wuphf', help='Send a WUPHF to a user')
-# async def wuphf(ctx, username: str):
-#   # Read data from JSON
-#   data = read_data()
-
-#   # Define your message
-#   wuphf_message = "This is a WUPHF from Discord!"
-
-#   # Handle the WUPHF
-#   response = handle_wuphf(ctx.guild.id, username, data, wuphf_message)
-
-#   await ctx.send(response)
+    # Call the handle_wuphf function with the member's ID
+    response = await handle_wuphf(ctx.guild.id, member.id, wuphf_message)
+    await ctx.send(response)
 
 
 

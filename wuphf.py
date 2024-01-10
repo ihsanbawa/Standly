@@ -1,11 +1,39 @@
 import os
 from twilio.rest import Client
+from database import database
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Twilio credentials
 TWILIO_ACCOUNT_SID = os.environ['TWILIO_ACCOUNT_SID']
 TWILIO_AUTH_TOKEN = os.environ['TWILIO_AUTH_TOKEN']
 TWILIO_PHONE_NUMBER = os.environ['TWILIO_PHONE_NUMBER']
 
+# Email credentials (assuming Gmail for this example)
+EMAIL_ADDRESS = os.environ['EMAIL_ADDRESS']
+EMAIL_PASSWORD = os.environ['EMAIL_PASSWORD']
+
+# Function to send an email
+def send_email(to_email, subject, message):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_ADDRESS
+        msg['To'] = to_email
+        msg['Subject'] = subject
+
+        body = MIMEText(message, 'plain')
+        msg.attach(body)
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        text = msg.as_string()
+        server.sendmail(EMAIL_ADDRESS, to_email, text)
+        server.quit()
+        print(f"Email sent to {to_email}")
+    except Exception as e:
+        print(f"Error sending email: {e}")
 
 # Function to send SMS
 def send_sms(to_number, message):
@@ -27,60 +55,41 @@ def make_call(to_number):
                       url="http://demo.twilio.com/docs/voice.xml")
 
 
-# Function to handle the entire WUPHF process
-def handle_wuphf(guild_id, user_name, data, wuphf_message):
-  guild_data = data.get(str(guild_id), {})
-  user_contact = guild_data.get("contact_data", {}).get(user_name, {})
-
-  if not user_contact:
-    return "Contact details for the user not found."
-
-  # Make a voice call
-  phone_numbers = user_contact.get('phones', [])
-  for phone_number in phone_numbers:
-    if phone_number:
-      send_sms(phone_number, wuphf_message)
-      make_call(phone_number)
-
-  return f"WUPHF sent to {user_name}!"
+# Fetch user contact details from the database using Discord ID
+async def get_user_contact(guild_id, discord_id):
+  print(f"Fetching contact for guild_id: {guild_id}, discord_id: {discord_id}")  # Debug print
+  query = """
+  SELECT primary_phone, secondary_phone, email
+  FROM users
+  WHERE guild_id = :guild_id AND discord_id = :discord_id;
+  """
+  result = await database.fetch_one(query, {'guild_id': guild_id, 'discord_id': discord_id})
+  print(f"Query result: {result}")  # Debug print
+  return result
 
 
-def get_all_contacts(data, guild_id):
-  guild_data = data.get(str(guild_id), {})
-  contact_data = guild_data.get("contact_data", {})
-  print(f"Contact data retrieved: {contact_data}"
-        )  # Debug: Check the retrieved contact data
 
-  if not contact_data:
-    return "No contact information available."
+  # Adjusted handle_wuphf function to use the database and Discord ID
+async def handle_wuphf(guild_id, discord_id, wuphf_message):
+  user_contact = await get_user_contact(guild_id, discord_id)
+  
+  if user_contact is None:
+      return "User not found or contact details not set."
+  
+  primary_phone = user_contact['primary_phone']
+  secondary_phone = user_contact['secondary_phone']
+  email = user_contact['email']
+  
+  # Sending SMS and making calls to both primary and secondary phones
+  for phone_number in [primary_phone, secondary_phone]:
+      if phone_number:
+          send_sms(phone_number, wuphf_message)
+          make_call(phone_number)
+      # if email:
+      #   send_email(email, "WUPHF Message", wuphf_message)
+  
+  return "WUPHF sent!"
 
-  contact_list = []
-  for username, info in contact_data.items():
-    phone_info = ', '.join(info.get(
-        'phones', ['N/A']))  # Ensure it's correctly accessing 'phones'
-    contact_info = f"Username: {username}, Phone: {phone_info}, Email: {info.get('email', 'N/A')}"
-    contact_list.append(contact_info)
-
-  return "\n".join(contact_list)
 
 
-def add_or_update_contact(data, guild_id, username, phones, email):
-  print(f"Received phones: {phones}")  # Debug: Check the input format
 
-  # Split phones into a list if there are multiple, or create a single-element list
-  phone_list = phones.split(',') if ',' in phones else [phones]
-  print(f"Processed phone_list: {phone_list}"
-        )  # Debug: Check how the list is formed
-
-  guild_data = data.get(str(guild_id), {})
-
-  # Update or add the new contact data
-  contact_data = guild_data.get("contact_data", {})
-  contact_data[username] = {"phones": phone_list, "email": email}
-  guild_data["contact_data"] = contact_data
-  data[str(guild_id)] = guild_data
-
-  print(f"Updated contact data for {username}: {contact_data[username]}"
-        )  # Debug: Check the final stored data
-
-  return data
