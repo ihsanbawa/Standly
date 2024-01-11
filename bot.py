@@ -12,6 +12,8 @@ from replit import db
 from database import database
 from datetime import datetime
 import pytz
+import asyncio
+
 
 # Load environment variables
 # load_dotenv()
@@ -35,6 +37,17 @@ async def execute_query(query, values={}):
   except Exception as e:
       print(f"Database query error: {e}")
       return None
+
+async def db_heartbeat():
+  while True:
+      await asyncio.sleep(300)  # Every 5 minutes
+      try:
+          await database.execute("SELECT 1")  # Simple query to keep the connection alive
+          print("Heartbeat query executed to keep DB connection alive.")
+      except Exception as e:
+          print(f"Error during heartbeat query: {e}")
+          # Optional: Reconnect logic here if the connection is lost
+
 
 # Helper function to fetch data from the database
 async def fetch_query(query, values={}):
@@ -97,15 +110,16 @@ async def log_standups_internal(guild_id, channel):
 # Event when bot is ready
 @bot.event
 async def on_ready():
-  print(f'{bot.user.name} has connected to Discord!')
-  try:
-    print("Attempting to connect to the database...")
-    await database.connect()
-    print("Successfully connected to the database.")
-  except Exception as e:
-    print(f"Failed to connect to the database: {e}")
+    print(f'{bot.user.name} has connected to Discord!')
+    try:
+        print("Attempting to connect to the database...")
+        await database.connect()
+        print("Successfully connected to the database.")
+        # Start the heartbeat task
+        bot.loop.create_task(db_heartbeat())
+    except Exception as e:
+        print(f"Failed to connect to the database: {e}")
 
-  print(f'{bot.user.name} has connected to Discord!')
 
 
 
