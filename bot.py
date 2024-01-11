@@ -40,13 +40,19 @@ async def execute_query(query, values={}):
 
 async def db_heartbeat():
   while True:
-      await asyncio.sleep(900)  # Every 5 minutes
-      try:
-          await database.execute("SELECT 1")  # Simple query to keep the connection alive
-          print("Heartbeat query executed to keep DB connection alive.")
-      except Exception as e:
-          print(f"Error during heartbeat query: {e}")
-          # Optional: Reconnect logic here if the connection is lost
+      await asyncio.sleep(300)  
+      if not database.is_connected:
+          try:
+              await database.connect()
+              print("Database connection re-established.")
+          except Exception as e:
+              print(f"Error reconnecting to the database: {e}")
+      else:
+          try:
+              await database.execute("SELECT 1")  # Simple query to keep the connection alive
+              print("Heartbeat query executed to keep DB connection alive.")
+          except Exception as e:
+              print(f"Error during heartbeat query: {e}")
 
 
 # Helper function to fetch data from the database
