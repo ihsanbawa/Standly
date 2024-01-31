@@ -80,16 +80,24 @@ async def handle_wuphf(guild_id, discord_id, wuphf_message):
   secondary_phone = user_contact['secondary_phone']
   email = user_contact['email']
   
+  actions = []
+  
   # Sending SMS and making calls to both primary and secondary phones
   for phone_number in [primary_phone, secondary_phone]:
       if phone_number:
           send_sms(phone_number, wuphf_message)
           make_call(phone_number)
+          actions.append(f"SMS and call to {phone_number}")
+      # Uncomment the following lines if you wish to send an email as well
       # if email:
-      #   send_email(email, "WUPHF Message", wuphf_message)
+      #     send_email(email, "WUPHF Message", wuphf_message)
+      #     actions.append(f"Email to {email}")
   
-  return "WUPHF sent!"
-
+  if not actions:
+      return "No contact methods available for the specified user."
+  
+  return "WUPHF request received. Actions taken: " + ", ".join(actions)
+  
 
 
 
