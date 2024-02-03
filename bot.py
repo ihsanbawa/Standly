@@ -267,10 +267,33 @@ async def remove_standups(ctx):
         await ctx.send(f"Errors occurred during deletion:\n{error_messages}")
 
 async def fetch_most_recent_data_point_id(beeminder_username, auth_token):
-    # Placeholder for fetching the most recent data point ID
-    # You'll need to implement this based on how you can identify which data point to remove
-    # This might involve making a GET request to Beeminder to fetch the user's data points and selecting the most recent
-    return "most_recent_data_point_id"
+  # Beeminder API URL to fetch all data points for a user's goal
+  url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints.json?auth_token={auth_token}"
+
+  async with aiohttp.ClientSession() as session:
+      try:
+          async with session.get(url) as response:
+              if response.status == 200:
+                  data_points = await response.json()
+
+                  if not data_points:
+                      print(f"No data points found for {beeminder_username}")
+                      return None
+
+                  # Sort the data points by the 'updated_at' or 'timestamp' field to find the most recent one
+                  # Assuming that the data points are returned as a list of dictionaries
+                  most_recent_data_point = max(data_points, key=lambda x: x['timestamp'])
+
+                  # Return the ID of the most recent data point
+                  return most_recent_data_point['id']
+              else:
+                  error = await response.text()
+                  print(f"Error fetching data points for {beeminder_username}: {response.status} - {error}")
+                  return None
+      except Exception as e:
+          print(f"Exception occurred while fetching data points for {beeminder_username}: {str(e)}")
+          return None
+
 
 
 
