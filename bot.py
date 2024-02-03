@@ -216,6 +216,61 @@ async def add_goal_command(ctx):
     await add_goal(ctx)  # Call the add_goal function from goals.py
 
 
+@bot.command(name='removestandups', help='Remove the most recent standup data point for all users')
+async def remove_standups(ctx):
+    guild_id = ctx.guild.id
+
+    # Fetch users and their Beeminder auth tokens for the guild
+    query = """
+        SELECT beeminder_username, beeminder_auth_token
+        FROM users
+        WHERE guild_id = :guild_id;
+        """
+    users = await fetch_query(query, {'guild_id': guild_id})
+
+    if not users:
+        await ctx.send("No user data available for this guild.")
+        return
+
+    successful_deletions = 0
+    errors = []
+
+    async with aiohttp.ClientSession() as session:
+        for user in users:
+            beeminder_username = user['beeminder_username']
+            auth_token = user['beeminder_auth_token']
+
+            # Fetch the most recent data point for the user
+            # This is a placeholder, you'll need to adjust based on how you can identify the data point to delete
+            data_point_id = await fetch_most_recent_data_point_id(beeminder_username, auth_token)
+
+            if not data_point_id:
+                errors.append(f"No data point found for {beeminder_username}")
+                continue
+
+            delete_url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints/{data_point_id}.json?auth_token={auth_token}"
+
+            try:
+                async with session.delete(delete_url) as response:
+                    if response.status == 200:
+                        successful_deletions += 1
+                    else:
+                        error = await response.text()
+                        errors.append(f"Error for {beeminder_username}: {response.status} - {error}")
+            except Exception as e:
+                errors.append(f"Exception for {beeminder_username}: {str(e)}")
+
+    if successful_deletions == len(users):
+        await ctx.send("Most recent standup data point removed successfully for all users.")
+    else:
+        error_messages = '\n'.join(errors)
+        await ctx.send(f"Errors occurred during deletion:\n{error_messages}")
+
+async def fetch_most_recent_data_point_id(beeminder_username, auth_token):
+    # Placeholder for fetching the most recent data point ID
+    # You'll need to implement this based on how you can identify which data point to remove
+    # This might involve making a GET request to Beeminder to fetch the user's data points and selecting the most recent
+    return "most_recent_data_point_id"
 
 
 
@@ -253,15 +308,14 @@ async def on_voice_state_update(member, before, after):
           central_tz = pytz.timezone('America/Chicago')  # Central Time Zone
           central_time = datetime.now(central_tz)
           today = central_time.strftime('%Y-%m-%d')
-          today_date = datetime.strptime(today, '%Y-%m-%d')
+          today_date = datetime.strptime(today, '%Y-%m-%d').date()
           last_log_date = guild_info['last_log_date']
           user_count_query = "SELECT COUNT(*) FROM users WHERE guild_id = :guild_id;"
           user_count_result = await fetch_query(user_count_query,
                                                 {"guild_id": guild_id})
           user_count = user_count_result[0][0] if user_count_result else 0
-
-          if len(after.channel.members) == user_count and (
-              not last_log_date or last_log_date != today):
+          print("dates", today_date, last_log_date)
+          if len(after.channel.members) == user_count and (today_date != last_log_date):
             print("Logging standup...")
             text_channel = discord.utils.get(after.channel.guild.text_channels,
                                              name=monitored_channel_name)
