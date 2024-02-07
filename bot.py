@@ -16,6 +16,9 @@ import pytz
 import asyncio
 from goals import view_goals, add_goal
 from discord import Thread
+from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
+
+
 
 # Load environment variables
 # load_dotenv()
@@ -455,12 +458,11 @@ async def daily_update(ctx):
         return
 
     # Fetch the monitored channel name for this guild
-    guild_query = """
+    guild_info_result = await fetch_query("""
         SELECT monitored_channel_name
         FROM guilds
         WHERE guild_id = :guild_id;
-    """
-    guild_info_result = await fetch_query(guild_query, {"guild_id": guild_id})
+    """, {"guild_id": guild_id})
 
     if not guild_info_result or len(guild_info_result) == 0:
         await ctx.send("Monitored channel not set for the associated guild.")
@@ -472,17 +474,34 @@ async def daily_update(ctx):
         await ctx.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
         return
 
-    # Prepare the message content and the user's display name for the thread
+    # Prepare the message content for the thread
     user_message = ctx.message.content[len(ctx.invoked_with) + 1:].strip()
-    username = user_info['discord_username']  # Or use ctx.author.display_name for the current display name
 
     # Find or create a thread named after the user's username in the monitored channel
-    thread = discord.utils.find(lambda t: t.name == username and isinstance(t, Thread), channel.threads)
-    if not thread:
-        thread = await channel.create_thread(name=username, type=discord.ChannelType.public_thread)
+    thread = await get_or_create_thread(channel, ctx.author.display_name)
 
-    # Post the update in the thread
+    # Post the initial update in the thread
     await thread.send(f"{ctx.author.mention}'s daily update:\n{user_message}")
+
+    # Fetch and display yesterday's completed tasks
+    todoist_token = await fetch_todoist_token(ctx.author.id, database)
+    if todoist_token:
+        completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
+        if completed_tasks:
+            completed_message = "Your completed tasks from yesterday:\n" + "\n".join([f"- {task['content']}" for task in completed_tasks])
+            await thread.send(completed_message)
+        else:
+            await thread.send("You had no completed tasks yesterday.")
+
+        # Fetch and display today's tasks
+        today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+        if today_tasks:
+            today_message = "Your tasks for today:\n" + "\n".join([f"- {task[0]}" for task in today_tasks])
+            await thread.send(today_message)
+        else:
+            await thread.send("You have no tasks for today.")
+    else:
+        await thread.send("Todoist API token not found. Please set it up.")
 
 
 
