@@ -15,6 +15,7 @@ from datetime import datetime
 import pytz
 import asyncio
 from goals import view_goals, add_goal
+from discord import Thread
 
 # Load environment variables
 # load_dotenv()
@@ -67,6 +68,23 @@ async def fetch_query(query, values={}):
     print(f"Database query error: {e}")
     return []
 
+
+async def fetch_user_info(user_id, database):
+  # Assuming 'database' is an async database connection object
+  query = """
+      SELECT guild_id, discord_username
+      FROM users
+      WHERE discord_id = :user_id
+  """
+  result = await database.fetch_one(query, {'user_id': user_id})
+  print(f"fetch_user_info result: {result}")
+  
+  if result:
+      return {
+          'guild_id': result['guild_id'],
+          'discord_username': result['discord_username']
+      }
+  return None
 
 # Function to log standups internally
 async def log_standups_internal(guild_id, channel):
@@ -416,6 +434,56 @@ async def info(ctx):
       f"- Monitored Channel: {monitored_channel} (ID: {monitored_channel_id})\n"
       f"- Last Log Date: {last_log_date}\n")
   await ctx.send(info_message)
+
+@bot.command(name='dailyupdate', help='Send your daily update')
+async def daily_update(ctx):
+    # Ensure this command is used in a DM, not in a public guild channel
+    if not isinstance(ctx.channel, discord.DMChannel):
+        await ctx.send("This command can only be used in DMs.")
+        return
+
+    # Fetch user info from the database
+    user_info = await fetch_user_info(ctx.author.id, database)
+    if not user_info:
+        await ctx.send("Could not find your user information in the database.")
+        return
+
+    guild_id = user_info['guild_id']
+    guild = bot.get_guild(guild_id)
+    if not guild:
+        await ctx.send("Could not find the guild associated with your user information.")
+        return
+
+    # Fetch the monitored channel name for this guild
+    guild_query = """
+        SELECT monitored_channel_name
+        FROM guilds
+        WHERE guild_id = :guild_id;
+    """
+    guild_info_result = await fetch_query(guild_query, {"guild_id": guild_id})
+
+    if not guild_info_result or len(guild_info_result) == 0:
+        await ctx.send("Monitored channel not set for the associated guild.")
+        return
+
+    monitored_channel_name = guild_info_result[0]['monitored_channel_name']
+    channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
+    if not channel:
+        await ctx.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
+        return
+
+    # Prepare the message content and the user's display name for the thread
+    user_message = ctx.message.content[len(ctx.invoked_with) + 1:].strip()
+    username = user_info['discord_username']  # Or use ctx.author.display_name for the current display name
+
+    # Find or create a thread named after the user's username in the monitored channel
+    thread = discord.utils.find(lambda t: t.name == username and isinstance(t, Thread), channel.threads)
+    if not thread:
+        thread = await channel.create_thread(name=username, type=discord.ChannelType.public_thread)
+
+    # Post the update in the thread
+    await thread.send(f"{ctx.author.mention}'s daily update:\n{user_message}")
+
 
 
 def run():
