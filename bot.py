@@ -12,13 +12,14 @@ from app import app
 from wuphf import handle_wuphf
 from replit import db
 from database import database
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import asyncio
 from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
 import uuid
+
 
 
 
@@ -158,6 +159,16 @@ async def log_standups_internal(guild_id, channel):
     print(f"Errors occurred:\n{error_messages}")
 
 
+async def determine_streak_update(last_entry_date, entry_date):
+  central_tz = pytz.timezone('America/Chicago')
+  last_entry_date = last_entry_date.astimezone(central_tz) if last_entry_date else None
+  entry_date = entry_date.astimezone(central_tz)
+
+  if last_entry_date is None or last_entry_date.date() != entry_date.date() - timedelta(days=1):
+      return 1
+  else:
+      return 1
+
 async def record_habit_entry(user_id, habit_id, quantity=None):
   print(f"Starting to record habit entry for user {user_id} and habit {habit_id}")
 
@@ -176,30 +187,22 @@ async def record_habit_entry(user_id, habit_id, quantity=None):
       print("Last Entry Query:", last_entry_query)
 
       last_entry = await database.fetch_one(last_entry_query, {'user_id': user_id, 'habit_id': habit_id})
-      
-      if last_entry:
-        print(f"Last entry date: {last_entry['entry_date']}")
-        last_entry_date = last_entry['entry_date'].astimezone(central_tz)
-      else:
-        print("No previous entries found for this habit.")
-        last_entry_date = entry_date  # Set last_ent
-        print("last entry date", last_entry_date)
-        print(habit_id, entry_date, last_entry_date)
 
-      # Step 2: Determine if streak should continue or reset, and update habits table
+      last_entry_date = last_entry['entry_date'] if last_entry else None
+
+      # Determine the streak update
+      streak_update = await determine_streak_update(last_entry_date, entry_date)
+
+      # Step 2: Update habits table
       streak_update_query = """
           UPDATE habits SET 
-              streak = CASE 
-                  WHEN :last_entry_date IS NULL OR DATE(:entry_date) != DATE(:last_entry_date) + INTERVAL '1 day' THEN 1
-                  ELSE streak + 1
-              END,
+              streak = streak + :streak_update,
               overall_counter = overall_counter + 1
           WHERE id = :habit_id
       """
       await database.execute(streak_update_query, {
-          'habit_id': habit_id,
-          'entry_date': entry_date,
-          'last_entry_date': last_entry_date
+          'streak_update': streak_update,
+          'habit_id': habit_id
       })
       print("Habit streak and overall counter updated.")
 
@@ -215,6 +218,7 @@ async def record_habit_entry(user_id, habit_id, quantity=None):
 
       quantity_value = int(quantity) if quantity is not None else 1
       print("db params", new_entry_id, habit_id, entry_date, quantity_value, user_id)
+
       await database.execute(insert_entry_query, {
           'new_entry_id': new_entry_id,
           'habit_id': habit_id,
@@ -223,6 +227,7 @@ async def record_habit_entry(user_id, habit_id, quantity=None):
           'user_id': user_id
       })
       print("New habit entry recorded.")
+
 
 
 def make_button_callback(user_id, habit_id, habit_title):
