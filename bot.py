@@ -11,7 +11,7 @@ import threading
 from app import app
 from wuphf import handle_wuphf
 from replit import db
-from database import database
+from database import database, fetch_query, execute_query
 from datetime import datetime, timedelta
 import pytz
 import asyncio
@@ -19,11 +19,7 @@ from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
 import uuid
-
-
-
-
-
+from habits import add_habit, delete_habit, record_habit
 
 
 # Load environment variables
@@ -43,12 +39,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 
-async def execute_query(query, values={}):
-  try:
-    return await database.execute(query, values)
-  except Exception as e:
-    print(f"Database query error: {e}")
-    return None
+
 
 async def db_heartbeat():
   while True:
@@ -70,13 +61,7 @@ async def db_heartbeat():
 def generate_random_uuid():
   return str(uuid.uuid4())
 
-# Helper function to fetch data from the database
-async def fetch_query(query, values={}):
-  try:
-    return await database.fetch_all(query, values)
-  except Exception as e:
-    print(f"Database query error: {e}")
-    return []
+
 
 
 async def fetch_user_info(user_id, database):
@@ -99,11 +84,25 @@ async def fetch_user_info(user_id, database):
 
 async def fetch_user_habits(discord_id):
   query = """
-      SELECT id, title
+      SELECT id, title, streak, overall_counter
       FROM habits
       WHERE user_id = :discord_id
   """
-  return await fetch_query(query, {'discord_id': discord_id})
+  return await fetch_query(query, {'discord_id': str(discord_id)})
+
+async def fetch_completed_habits(user_id, date):
+  query = """
+      SELECT title, 
+             MAX(streak) AS streak, 
+             MAX(overall_counter) AS overall_counter 
+      FROM habit_entries 
+      JOIN habits ON habit_entries.habit_id = habits.id 
+      WHERE habit_entries.user_id = :user_id 
+      AND DATE(habit_entries.entry_date) = :date 
+      GROUP BY title;
+  """
+  return await fetch_query(query, {'user_id': str(user_id), 'date': date})
+
 
 
 # Function to log standups internally
@@ -168,65 +167,6 @@ async def determine_streak_update(last_entry_date, entry_date):
       return 1
   else:
       return 1
-
-async def record_habit_entry(user_id, habit_id, quantity=None):
-  print(f"Starting to record habit entry for user {user_id} and habit {habit_id}")
-
-  central_tz = pytz.timezone('America/Chicago')
-  entry_date = datetime.now(central_tz)
-  print(f"Entry date (Central Time): {entry_date}")
-
-  # Start a transaction
-  async with database.transaction():
-      # Step 1: Check the last completion date for this habit
-      last_entry_query = """
-          SELECT entry_date FROM habit_entries
-          WHERE user_id = :user_id AND habit_id = :habit_id
-          ORDER BY entry_date DESC LIMIT 1
-      """
-      print("Last Entry Query:", last_entry_query)
-
-      last_entry = await database.fetch_one(last_entry_query, {'user_id': user_id, 'habit_id': habit_id})
-
-      last_entry_date = last_entry['entry_date'] if last_entry else None
-
-      # Determine the streak update
-      streak_update = await determine_streak_update(last_entry_date, entry_date)
-
-      # Step 2: Update habits table
-      streak_update_query = """
-          UPDATE habits SET 
-              streak = streak + :streak_update,
-              overall_counter = overall_counter + 1
-          WHERE id = :habit_id
-      """
-      await database.execute(streak_update_query, {
-          'streak_update': streak_update,
-          'habit_id': habit_id
-      })
-      print("Habit streak and overall counter updated.")
-
-      # Generate a new UUID for the habit entry
-      new_entry_id = generate_random_uuid()
-      print(f"Generated new entry ID: {new_entry_id}")
-
-      # Insert the new habit entry with the generated UUID
-      insert_entry_query = """
-          INSERT INTO habit_entries (id, habit_id, entry_date, quantity, user_id)
-          VALUES (:new_entry_id, :habit_id, :entry_date, :quantity, :user_id)
-      """
-
-      quantity_value = int(quantity) if quantity is not None else 1
-      print("db params", new_entry_id, habit_id, entry_date, quantity_value, user_id)
-
-      await database.execute(insert_entry_query, {
-          'new_entry_id': new_entry_id,
-          'habit_id': habit_id,
-          'entry_date': entry_date,
-          'quantity': quantity_value,
-          'user_id': user_id
-      })
-      print("New habit entry recorded.")
 
 
 
@@ -418,85 +358,6 @@ async def fetch_most_recent_data_point_id(beeminder_username, auth_token):
           return None
 
 
-
-
-@bot.command(name='addhabit', help='Add a new habit')
-async def add_habit(ctx, *, habit_title):
-    if not isinstance(ctx.channel, discord.DMChannel):
-        await ctx.send("Please use this command in a Direct Message with me.")
-        return
-
-    user_id = str(ctx.author.id)  # Use Discord ID as the user_id in the database
-
-    # Insert the new habit into the database
-    insert_habit_query = """
-        INSERT INTO habits (id, title, user_id, streak, overall_counter)
-        VALUES (:habit_id, :habit_title, :user_id, 0, 0)
-    """
-
-    # Generate a new UUID for the habit
-    habit_id = generate_random_uuid()
-
-    try:
-        await database.execute(insert_habit_query, {
-            'habit_id': habit_id,
-            'habit_title': habit_title,
-            'user_id': user_id
-        })
-        await ctx.send(f"New habit '{habit_title}' added successfully!")
-    except Exception as e:
-        print(f"Error adding new habit: {e}")
-        await ctx.send("Failed to add the new habit. Please try again later.")
-
-@bot.command(name='deletehabit', help='Delete a habit')
-async def delete_habit(ctx, *, habit_title):
-    if not isinstance(ctx.channel, discord.DMChannel):
-        await ctx.send("Please use this command in a Direct Message with me.")
-        return
-
-    user_id = str(ctx.author.id)  # Use Discord ID as the user_id in the database
-
-    # Fetch the habit ID using the habit title and user ID
-    habit_query = """
-        SELECT id
-        FROM habits
-        WHERE user_id = :user_id AND title = :habit_title
-    """
-    habit_result = await database.fetch_one(habit_query, {'user_id': user_id, 'habit_title': habit_title})
-
-    if not habit_result:
-        await ctx.send(f"You don't have a habit with the title '{habit_title}'.")
-        return
-
-    habit_id = habit_result['id']
-
-    # Delete all entries associated with the habit
-    delete_entries_query = """
-        DELETE FROM habit_entries
-        WHERE habit_id = :habit_id
-    """
-    try:
-        await database.execute(delete_entries_query, {'habit_id': habit_id})
-    except Exception as e:
-        print(f"Error deleting entries associated with habit: {e}")
-        await ctx.send("Failed to delete entries associated with the habit. Please try again later.")
-        return
-
-    # Delete the habit from the database
-    delete_habit_query = """
-        DELETE FROM habits
-        WHERE id = :habit_id
-    """
-
-    try:
-        await database.execute(delete_habit_query, {'habit_id': habit_id})
-        await ctx.send(f"Habit '{habit_title}' deleted successfully!")
-    except Exception as e:
-        print(f"Error deleting habit: {e}")
-        await ctx.send("Failed to delete the habit. Please try again later.")
-
-
-
 @bot.event
 async def on_voice_state_update(member, before, after):
   print(f"Voice state update detected for member: {member.name}")
@@ -680,40 +541,66 @@ async def daily_update(ctx):
     else:
         await thread.send("Todoist API token not found. Please set it up.")
 
+    # Fetch and display user's habits
+    habits = await fetch_user_habits(ctx.author.id)
+    if habits:
+        habit_message = "Your habits:\n"
+        for habit in habits:
+            habit_message += f"- {habit['title']} (Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']})\n"
+        await thread.send(habit_message)
+    else:
+        await thread.send("You have no habits recorded.")
+
+
+
+# Update command definitions to use functions from habits.py
+@bot.command(name='addhabit', help='Add a new habit')
+async def add_habit_command(ctx, *, habit_title):
+    await add_habit(ctx, habit_title)
+
+@bot.command(name='deletehabit', help='Delete a habit')
+async def delete_habit_command(ctx, *, habit_title):
+    await delete_habit(ctx, habit_title)
+
 @bot.command(name='recordhabit', help='Record a habit from a list')
-async def record_habit(ctx):
-    if not isinstance(ctx.channel, discord.DMChannel):
-        await ctx.send("Please use this command in a Direct Message with me.")
-        return
+async def record_habit_command(ctx):
+    await record_habit(ctx)
 
-    user_id = str(ctx.author.id)  # Use Discord ID as the user_id in the database
+@bot.command(name='displayhabits', help='Display completed habits summary')
+async def display_habits(ctx):
+    # Get the user's Discord ID
+    user_id = ctx.author.id
 
-    user_habits = await fetch_user_habits(user_id)
+    # Get today's date and yesterday's date
+    today_date = datetime.now().date()
+    yesterday_date = today_date - timedelta(days=1)
 
-    if not user_habits:
-        await ctx.send("You don't have any habits set up yet.")
-        return
+    # Fetch habits completed today and yesterday for the user
+    today_habits = await fetch_completed_habits(user_id, today_date)
+    yesterday_habits = await fetch_completed_habits(user_id, yesterday_date)
 
-    view = View()
+    # Prepare the message
+    message = "**Habit Summary**\n-----------------\n"
 
-    for habit in user_habits:
-        habit_id, habit_title = habit['id'], habit['title']
-        button = Button(label=habit_title, style=discord.ButtonStyle.primary)
+    # Add completed habits for today
+    if today_habits:
+        message += "**Completed Today:**\n"
+        for habit in today_habits:
+            message += f"{habit['title']} - Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']}\n"
+    else:
+        message += "No habits completed today.\n"
 
-        async def button_callback(interaction, habit_id=habit_id, habit_title=habit_title, user_id=user_id):
-            try:
-                await record_habit_entry(user_id, habit_id)
-                await interaction.response.send_message(f"'{habit_title}' habit recorded successfully!", ephemeral=True)
-            except Exception as e:
-                print(f"Error recording habit entry: {e}")
-                await interaction.response.send_message("There was an error recording your habit. Please try again.", ephemeral=True)
+    # Add completed habits for yesterday
+    if yesterday_habits:
+        message += "\n**Completed Yesterday:**\n"
+        for habit in yesterday_habits:
+            message += f"{habit['title']} - Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']}\n"
+    else:
+        message += "No habits completed yesterday.\n"
 
-        # Directly assign the callback function to the button
-        button.callback = button_callback
+    # Send the message
+    await ctx.send(message)
 
-        view.add_item(button)
-
-    await ctx.send("Click the button corresponding to the habit you want to record for today:", view=view)
 
   
 
