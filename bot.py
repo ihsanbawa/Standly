@@ -1,4 +1,3 @@
-from functools import partial
 import os
 from dotenv import load_dotenv
 import discord
@@ -18,7 +17,7 @@ import asyncio
 from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
-from habits import add_habit, delete_habit, record_habit, fetch_completed_habits, fetch_user_habits
+from habits import add_habit, delete_habit, record_habit_entry, fetch_completed_habits, fetch_user_habits
 
 import uuid
 
@@ -544,8 +543,50 @@ async def delete_habit_command(ctx, *, habit_title):
     await delete_habit(ctx, habit_title)
 
 @bot.command(name='recordhabit', help='Record a habit from a list')
-async def record_habit_command(ctx):
-    await record_habit(ctx)
+async def record_habit(ctx):
+  if not isinstance(ctx.channel, discord.DMChannel):
+      await ctx.send("Please use this command in a Direct Message with me.")
+      return
+
+  user_id = str(ctx.author.id)
+  user_habits = await fetch_user_habits(user_id)
+
+  if not user_habits:
+      await ctx.send("You don't have any habits set up yet.")
+      return
+
+  view = View()
+
+  for habit in user_habits:
+      habit_id, habit_title = habit['id'], habit['title']
+
+      button = Button(label=habit_title, style=discord.ButtonStyle.primary)
+
+      async def button_callback(interaction, habit_id=habit_id, habit_title=habit_title, user_id=user_id):
+          try:
+              await record_habit_entry(user_id, habit_id)
+              await interaction.response.send_message(f"'{habit_title}' recorded!")
+          except Exception as e:
+              print(f"Error recording habit entry: {e}")
+              await interaction.response.send_message("Failed to record habit entry. Please try again later.")
+
+      button.callback = button_callback
+      view.add_item(button)
+
+  # Finish button
+  finish_button = Button(label="Finish", style=discord.ButtonStyle.green)
+
+  async def finish_callback(interaction):
+    # Inform the user that their habits recording session is concluded
+    await interaction.response.send_message("Finishing habit recording. Processing your daily update...", ephemeral=True)
+
+    # Directly call the daily_update function here
+    await daily_update(ctx)
+
+  finish_button.callback = finish_callback
+  view.add_item(finish_button)
+
+  await ctx.send("Select a habit to record or click 'Finish' when done:", view=view)
 
 @bot.command(name='displayhabits', help='Display completed habits summary')
 async def display_habits(ctx):

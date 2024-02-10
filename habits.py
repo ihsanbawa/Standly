@@ -157,36 +157,3 @@ async def delete_habit(ctx, habit_title):
         print(f"Error deleting habit: {e}")
         await ctx.send("Failed to delete the habit. Please try again later.")
 
-async def record_habit(ctx):
-    if not isinstance(ctx.channel, discord.DMChannel):
-        await ctx.send("Please use this command in a Direct Message with me.")
-        return
-
-    user_id = str(ctx.author.id)
-
-    user_habits = await fetch_user_habits(user_id)
-
-    if not user_habits:
-        await ctx.send("You don't have any habits set up yet.")
-        return
-
-    view = View()
-
-    for habit in user_habits:
-        habit_id, habit_title = habit['id'], habit['title']
-
-        button = Button(label=habit_title, style=discord.ButtonStyle.primary)
-
-        async def button_callback(interaction, habit_id=habit_id, habit_title=habit_title, user_id=user_id):
-            try:
-                await record_habit_entry(user_id, habit_id)
-                await interaction.response.send_message(f"'{habit_title}' recorded!")
-            except Exception as e:
-                print(f"Error recording habit entry: {e}")
-                await interaction.response.send_message("Failed to record habit entry. Please try again later.")
-
-        button.callback = button_callback
-
-        view.add_item(button)
-
-    await ctx.send("Select a habit to record:", view=view)
