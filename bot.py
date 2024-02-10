@@ -420,6 +420,81 @@ async def fetch_most_recent_data_point_id(beeminder_username, auth_token):
 
 
 
+@bot.command(name='addhabit', help='Add a new habit')
+async def add_habit(ctx, *, habit_title):
+    if not isinstance(ctx.channel, discord.DMChannel):
+        await ctx.send("Please use this command in a Direct Message with me.")
+        return
+
+    user_id = str(ctx.author.id)  # Use Discord ID as the user_id in the database
+
+    # Insert the new habit into the database
+    insert_habit_query = """
+        INSERT INTO habits (id, title, user_id, streak, overall_counter)
+        VALUES (:habit_id, :habit_title, :user_id, 0, 0)
+    """
+
+    # Generate a new UUID for the habit
+    habit_id = generate_random_uuid()
+
+    try:
+        await database.execute(insert_habit_query, {
+            'habit_id': habit_id,
+            'habit_title': habit_title,
+            'user_id': user_id
+        })
+        await ctx.send(f"New habit '{habit_title}' added successfully!")
+    except Exception as e:
+        print(f"Error adding new habit: {e}")
+        await ctx.send("Failed to add the new habit. Please try again later.")
+
+@bot.command(name='deletehabit', help='Delete a habit')
+async def delete_habit(ctx, *, habit_title):
+    if not isinstance(ctx.channel, discord.DMChannel):
+        await ctx.send("Please use this command in a Direct Message with me.")
+        return
+
+    user_id = str(ctx.author.id)  # Use Discord ID as the user_id in the database
+
+    # Fetch the habit ID using the habit title and user ID
+    habit_query = """
+        SELECT id
+        FROM habits
+        WHERE user_id = :user_id AND title = :habit_title
+    """
+    habit_result = await database.fetch_one(habit_query, {'user_id': user_id, 'habit_title': habit_title})
+
+    if not habit_result:
+        await ctx.send(f"You don't have a habit with the title '{habit_title}'.")
+        return
+
+    habit_id = habit_result['id']
+
+    # Delete all entries associated with the habit
+    delete_entries_query = """
+        DELETE FROM habit_entries
+        WHERE habit_id = :habit_id
+    """
+    try:
+        await database.execute(delete_entries_query, {'habit_id': habit_id})
+    except Exception as e:
+        print(f"Error deleting entries associated with habit: {e}")
+        await ctx.send("Failed to delete entries associated with the habit. Please try again later.")
+        return
+
+    # Delete the habit from the database
+    delete_habit_query = """
+        DELETE FROM habits
+        WHERE id = :habit_id
+    """
+
+    try:
+        await database.execute(delete_habit_query, {'habit_id': habit_id})
+        await ctx.send(f"Habit '{habit_title}' deleted successfully!")
+    except Exception as e:
+        print(f"Error deleting habit: {e}")
+        await ctx.send("Failed to delete the habit. Please try again later.")
+
 
 
 @bot.event
