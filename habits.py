@@ -1,34 +1,35 @@
-from database import database
+from database import database, execute_query, fetch_query
 from datetime import datetime, timedelta
 import pytz
 import uuid
 import asyncio
 import discord
 from discord.ui import Button, View, Modal, TextInput
-async def execute_query(query, values={}):
-    try:
-        return await database.execute(query, values)
-    except Exception as e:
-        print(f"Database query error: {e}")
-        return None
 
-async def fetch_query(query, values={}):
-    try:
-        return await database.fetch_all(query, values)
-    except Exception as e:
-        print(f"Database query error: {e}")
-        return []
 
+async def fetch_user_habits(discord_id):
+  query = """
+      SELECT id, title, streak, overall_counter
+      FROM habits
+      WHERE user_id = :discord_id
+  """
+  return await fetch_query(query, {'discord_id': str(discord_id)})
+
+async def fetch_completed_habits(user_id, date):
+  query = """
+      SELECT title, 
+             MAX(streak) AS streak, 
+             MAX(overall_counter) AS overall_counter 
+      FROM habit_entries 
+      JOIN habits ON habit_entries.habit_id = habits.id 
+      WHERE habit_entries.user_id = :user_id 
+      AND DATE(habit_entries.entry_date) = :date 
+      GROUP BY title;
+  """
+  return await fetch_query(query, {'user_id': str(user_id), 'date': date})
 async def generate_random_uuid():
     return str(uuid.uuid4())
 
-async def fetch_user_habits(discord_id):
-    query = """
-        SELECT id, title
-        FROM habits
-        WHERE user_id = :discord_id
-    """
-    return await fetch_query(query, {'discord_id': discord_id})
 
 async def record_habit_entry(user_id, habit_id, quantity=None):
     print(f"Starting to record habit entry for user {user_id} and habit {habit_id}")

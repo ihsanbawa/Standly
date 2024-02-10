@@ -18,8 +18,9 @@ import asyncio
 from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
+from habits import add_habit, delete_habit, record_habit, fetch_completed_habits, fetch_user_habits
+
 import uuid
-from habits import add_habit, delete_habit, record_habit
 
 
 # Load environment variables
@@ -82,26 +83,6 @@ async def fetch_user_info(user_id, database):
   return None
 
 
-async def fetch_user_habits(discord_id):
-  query = """
-      SELECT id, title, streak, overall_counter
-      FROM habits
-      WHERE user_id = :discord_id
-  """
-  return await fetch_query(query, {'discord_id': str(discord_id)})
-
-async def fetch_completed_habits(user_id, date):
-  query = """
-      SELECT title, 
-             MAX(streak) AS streak, 
-             MAX(overall_counter) AS overall_counter 
-      FROM habit_entries 
-      JOIN habits ON habit_entries.habit_id = habits.id 
-      WHERE habit_entries.user_id = :user_id 
-      AND DATE(habit_entries.entry_date) = :date 
-      GROUP BY title;
-  """
-  return await fetch_query(query, {'user_id': str(user_id), 'date': date})
 
 
 
