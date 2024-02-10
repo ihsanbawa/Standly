@@ -1,3 +1,4 @@
+from functools import partial
 import os
 from dotenv import load_dotenv
 import discord
@@ -17,6 +18,10 @@ import asyncio
 from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
+import uuid
+
+
+
 
 
 
@@ -44,7 +49,6 @@ async def execute_query(query, values={}):
     print(f"Database query error: {e}")
     return None
 
-
 async def db_heartbeat():
   while True:
     await asyncio.sleep(300)
@@ -62,6 +66,8 @@ async def db_heartbeat():
       except Exception as e:
         print(f"Error during heartbeat query: {e}")
 
+def generate_random_uuid():
+  return str(uuid.uuid4())
 
 # Helper function to fetch data from the database
 async def fetch_query(query, values={}):
@@ -88,6 +94,16 @@ async def fetch_user_info(user_id, database):
           'discord_username': result['discord_username']
       }
   return None
+
+
+async def fetch_user_habits(discord_id):
+  query = """
+      SELECT id, title
+      FROM habits
+      WHERE user_id = :discord_id
+  """
+  return await fetch_query(query, {'discord_id': discord_id})
+
 
 # Function to log standups internally
 async def log_standups_internal(guild_id, channel):
@@ -140,6 +156,87 @@ async def log_standups_internal(guild_id, channel):
   else:
     error_messages = '\n'.join(errors)
     print(f"Errors occurred:\n{error_messages}")
+
+
+async def record_habit_entry(user_id, habit_id, quantity=None):
+  print(f"Starting to record habit entry for user {user_id} and habit {habit_id}")
+
+  central_tz = pytz.timezone('America/Chicago')
+  entry_date = datetime.now(central_tz)
+  print(f"Entry date (Central Time): {entry_date}")
+
+  # Start a transaction
+  async with database.transaction():
+      # Step 1: Check the last completion date for this habit
+      last_entry_query = """
+          SELECT entry_date FROM habit_entries
+          WHERE user_id = :user_id AND habit_id = :habit_id
+          ORDER BY entry_date DESC LIMIT 1
+      """
+      print("Last Entry Query:", last_entry_query)
+
+      last_entry = await database.fetch_one(last_entry_query, {'user_id': user_id, 'habit_id': habit_id})
+      
+      if last_entry:
+        print(f"Last entry date: {last_entry['entry_date']}")
+        last_entry_date = last_entry['entry_date'].astimezone(central_tz)
+      else:
+        print("No previous entries found for this habit.")
+        last_entry_date = entry_date  # Set last_ent
+        print("last entry date", last_entry_date)
+        print(habit_id, entry_date, last_entry_date)
+
+      # Step 2: Determine if streak should continue or reset, and update habits table
+      streak_update_query = """
+          UPDATE habits SET 
+              streak = CASE 
+                  WHEN :last_entry_date IS NULL OR DATE(:entry_date) != DATE(:last_entry_date) + INTERVAL '1 day' THEN 1
+                  ELSE streak + 1
+              END,
+              overall_counter = overall_counter + 1
+          WHERE id = :habit_id
+      """
+      await database.execute(streak_update_query, {
+          'habit_id': habit_id,
+          'entry_date': entry_date,
+          'last_entry_date': last_entry_date
+      })
+      print("Habit streak and overall counter updated.")
+
+      # Generate a new UUID for the habit entry
+      new_entry_id = generate_random_uuid()
+      print(f"Generated new entry ID: {new_entry_id}")
+
+      # Insert the new habit entry with the generated UUID
+      insert_entry_query = """
+          INSERT INTO habit_entries (id, habit_id, entry_date, quantity, user_id)
+          VALUES (:new_entry_id, :habit_id, :entry_date, :quantity, :user_id)
+      """
+
+      quantity_value = int(quantity) if quantity is not None else 1
+      print("db params", new_entry_id, habit_id, entry_date, quantity_value, user_id)
+      await database.execute(insert_entry_query, {
+          'new_entry_id': new_entry_id,
+          'habit_id': habit_id,
+          'entry_date': entry_date,
+          'quantity': quantity_value,
+          'user_id': user_id
+      })
+      print("New habit entry recorded.")
+
+
+def make_button_callback(user_id, habit_id, habit_title):
+  async def button_callback(interaction):
+      try:
+          # Call the function to record the habit entry in the database
+          await record_habit_entry(user_id, habit_id)
+          # Send a confirmation message to the user
+          await interaction.response.send_message(f"'{habit_title}' habit recorded successfully!", ephemeral=True)
+      except Exception as e:
+          # Handle any errors that occur during the database operation
+          print(f"Error recording habit entry: {e}")
+          await interaction.response.send_message("There was an error recording your habit. Please try again.", ephemeral=True)
+  return button_callback
 
 
 # Event when bot is ready
@@ -503,7 +600,42 @@ async def daily_update(ctx):
     else:
         await thread.send("Todoist API token not found. Please set it up.")
 
+@bot.command(name='recordhabit', help='Record a habit from a list')
+async def record_habit(ctx):
+    if not isinstance(ctx.channel, discord.DMChannel):
+        await ctx.send("Please use this command in a Direct Message with me.")
+        return
 
+    user_id = str(ctx.author.id)  # Use Discord ID as the user_id in the database
+
+    user_habits = await fetch_user_habits(user_id)
+
+    if not user_habits:
+        await ctx.send("You don't have any habits set up yet.")
+        return
+
+    view = View()
+
+    for habit in user_habits:
+        habit_id, habit_title = habit['id'], habit['title']
+        button = Button(label=habit_title, style=discord.ButtonStyle.primary)
+
+        async def button_callback(interaction, habit_id=habit_id, habit_title=habit_title, user_id=user_id):
+            try:
+                await record_habit_entry(user_id, habit_id)
+                await interaction.response.send_message(f"'{habit_title}' habit recorded successfully!", ephemeral=True)
+            except Exception as e:
+                print(f"Error recording habit entry: {e}")
+                await interaction.response.send_message("There was an error recording your habit. Please try again.", ephemeral=True)
+
+        # Directly assign the callback function to the button
+        button.callback = button_callback
+
+        view.add_item(button)
+
+    await ctx.send("Click the button corresponding to the habit you want to record for today:", view=view)
+
+  
 
 def run():
   app.run(host='0.0.0.0', port=8080)
