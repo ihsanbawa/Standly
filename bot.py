@@ -458,12 +458,10 @@ async def info(ctx):
 
 @bot.command(name='dailyupdate', help='Send your daily update')
 async def daily_update(ctx):
-    # Ensure this command is used in a DM, not in a public guild channel
     if not isinstance(ctx.channel, discord.DMChannel):
         await ctx.send("This command can only be used in DMs.")
         return
 
-    # Fetch user info from the database
     user_info = await fetch_user_info(ctx.author.id, database)
     if not user_info:
         await ctx.send("Could not find your user information in the database.")
@@ -475,7 +473,6 @@ async def daily_update(ctx):
         await ctx.send("Could not find the guild associated with your user information.")
         return
 
-    # Fetch the monitored channel name for this guild
     guild_info_result = await fetch_query("""
         SELECT monitored_channel_name
         FROM guilds
@@ -492,44 +489,42 @@ async def daily_update(ctx):
         await ctx.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
         return
 
-    # Prepare the message content for the thread
-    user_message = ctx.message.content[len(ctx.invoked_with) + 1:].strip()
-
-    # Find or create a thread named after the user's username in the monitored channel
     thread = await get_or_create_thread(channel, ctx.author.display_name)
 
-    # Post the initial update in the thread
-    await thread.send(f"{ctx.author.mention}'s daily update:\n{user_message}")
-
-    # Fetch and display yesterday's completed tasks
     todoist_token = await fetch_todoist_token(ctx.author.id, database)
+    completed_message = f"🌟 **Daily Update for @{ctx.author.name}** 🌟\n\n"
+
     if todoist_token:
         completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
+        completed_message += "🎯 **Completed Tasks Yesterday:**\n"
         if completed_tasks:
-            completed_message = "Your completed tasks from yesterday:\n" + "\n".join([f"- {task['content']}" for task in completed_tasks])
-            await thread.send(completed_message)
+            for task in completed_tasks:
+                completed_message += f"✅ {task['content']}\n"
         else:
-            await thread.send("You had no completed tasks yesterday.")
+            completed_message += "No tasks completed yesterday.\n"
 
-        # Fetch and display today's tasks
         today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+        completed_message += "\n🚀 **Today's Tasks:**\n"
         if today_tasks:
-            today_message = "Your tasks for today:\n" + "\n".join([f"- {task[0]}" for task in today_tasks])
-            await thread.send(today_message)
+            for task in today_tasks:
+                completed_message += f"🕒 {task[0]}\n"
         else:
-            await thread.send("You have no tasks for today.")
+            completed_message += "You're all clear for today!\n"
     else:
-        await thread.send("Todoist API token not found. Please set it up.")
+        completed_message += "\nTodoist API token not found. Please set it up.\n"
 
-    # Fetch and display user's habits
     habits = await fetch_user_habits(ctx.author.id)
+    completed_message += "\n💪 **Habit Tracker:**\n"
     if habits:
-        habit_message = "Your habits:\n"
         for habit in habits:
-            habit_message += f"- {habit['title']} (Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']})\n"
-        await thread.send(habit_message)
+            # Placeholder for 7-Day Momentum percentage
+            momentum_placeholder = "XX%"
+            completed_message += f"**{habit['title']}**\n    🔄 Streak: {habit['streak']} 🔥 | 📈 Overall: {habit['overall_counter']} | 📊 7-Day Momentum: {momentum_placeholder}\n"
     else:
-        await thread.send("You have no habits recorded.")
+        completed_message += "You have no habits recorded.\n"
+
+    await thread.send(completed_message)
+
 
 
 
