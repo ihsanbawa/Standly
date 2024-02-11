@@ -17,7 +17,7 @@ import asyncio
 from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
-from habits import add_habit, delete_habit, record_habit_entry, fetch_completed_habits, fetch_user_habits
+from habits import add_habit, delete_habit, record_habit_entry, fetch_completed_habits, fetch_user_habits, calculate_7_day_momentum
 
 import uuid
 
@@ -518,8 +518,8 @@ async def daily_update(ctx):
     if habits:
         for habit in habits:
             # Placeholder for 7-Day Momentum percentage
-            momentum_placeholder = "XX%"
-            completed_message += f"**{habit['title']}**\n    🔄 Streak: {habit['streak']} 🔥 | 📈 Overall: {habit['overall_counter']} | 📊 7-Day Momentum: {momentum_placeholder}\n"
+            momentum = await calculate_7_day_momentum(str(ctx.author.id), habit['id'], database)
+            completed_message += f"**{habit['title']}**\n    🔄 Streak: {habit['streak']} 🔥 | 📈 Overall: {habit['overall_counter']} | 📊 7-Day Momentum: {momentum}%\n"
     else:
         completed_message += "You have no habits recorded.\n"
 

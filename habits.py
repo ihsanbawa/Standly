@@ -157,3 +157,41 @@ async def delete_habit(ctx, habit_title):
         print(f"Error deleting habit: {e}")
         await ctx.send("Failed to delete the habit. Please try again later.")
 
+from datetime import datetime, timedelta
+
+async def calculate_7_day_momentum(user_id, habit_id, database):
+    # Define the 7-day period
+    end_date = datetime.now().date()  # Today's date
+    start_date = end_date - timedelta(days=6)  # 7 days including today
+
+    # Fetch the completion records for the habit in the last 7 days
+    completions = await fetch_habit_completions(user_id, habit_id, start_date, end_date, database)
+
+    # Calculate momentum
+    if completions is not None:
+        momentum = (completions / 7) * 100  # As a percentage
+    else:
+        momentum = 0  # If no completions, momentum is 0%
+
+    return round(momentum)
+
+async def fetch_habit_completions(user_id, habit_id, start_date, end_date, database):
+# Query to count distinct days a habit was completed by the user in the last 7 days
+  query = """
+      SELECT COUNT(DISTINCT DATE(entry_date))
+      FROM habit_entries
+      WHERE user_id = :user_id
+      AND habit_id = :habit_id
+      AND entry_date::date BETWEEN :start_date AND :end_date
+  """
+  result = await database.fetch_one(query, {
+      'user_id': user_id,
+      'habit_id': habit_id,
+      'start_date': start_date,
+      'end_date': end_date
+  })
+  
+  if result and result[0]:
+      return result[0]  # Returns the count of distinct days with completions
+  return 0
+
