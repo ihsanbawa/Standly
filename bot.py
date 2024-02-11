@@ -537,7 +537,7 @@ async def add_habit_command(ctx, *, habit_title):
 async def delete_habit_command(ctx, *, habit_title):
     await delete_habit(ctx, habit_title)
 
-@bot.command(name='!dailyupdate', help='Daily Update w/ Habits')
+@bot.command(name='dailyupdate', help='Daily Update w/ Habits')
 async def record_habit(ctx):
   if not isinstance(ctx.channel, discord.DMChannel):
       await ctx.send("Please use this command in a Direct Message with me.")
