@@ -519,7 +519,7 @@ async def daily_update(ctx):
         for habit in habits:
             # Placeholder for 7-Day Momentum percentage
             momentum = await calculate_7_day_momentum(str(ctx.author.id), habit['id'], database)
-            completed_message += f"**{habit['title']}**\n    🔄 Streak: {habit['streak']} 🔥 | 📈 Overall: {habit['overall_counter']} | 📊 7-Day Momentum: {momentum}%\n"
+            completed_message += f"**{habit['title']}**\nStreak: {habit['streak']} 🔥 | Overall: {habit['overall_counter']} | 7-Day: {momentum}%\n"
     else:
         completed_message += "You have no habits recorded.\n"
 
