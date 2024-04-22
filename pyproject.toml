@@ -18,6 +18,7 @@ consultor = "^0.2.0"
 databases = "^0.8.0"
 pytz = "^2023.3.post1"
 backoff = "^2.2.1"
+aiocron = "^1.8"
 
 [tool.pyright]
 # https://github.com/microsoft/pyright/blob/main/docs/configuration.md

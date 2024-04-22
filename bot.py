@@ -18,9 +18,8 @@ from goals import view_goals, add_goal
 from discord import Thread
 from daily_updates import fetch_user_info, fetch_todoist_token, fetch_tasks_from_todoist, fetch_completed_tasks_from_todoist, get_or_create_thread
 from habits import add_habit, delete_habit, record_habit_entry, fetch_completed_habits, fetch_user_habits, calculate_7_day_momentum
-
+import aiocron
 import uuid
-
 
 # Load environment variables
 # load_dotenv()
@@ -37,8 +36,6 @@ intents.message_content = True
 
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
-
-
 
 
 async def db_heartbeat():
@@ -58,10 +55,9 @@ async def db_heartbeat():
       except Exception as e:
         print(f"Error during heartbeat query: {e}")
 
+
 def generate_random_uuid():
   return str(uuid.uuid4())
-
-
 
 
 async def fetch_user_info(user_id, database):
@@ -73,16 +69,13 @@ async def fetch_user_info(user_id, database):
   """
   result = await database.fetch_one(query, {'user_id': user_id})
   print(f"fetch_user_info result: {result}")
-  
+
   if result:
-      return {
-          'guild_id': result['guild_id'],
-          'discord_username': result['discord_username']
-      }
+    return {
+        'guild_id': result['guild_id'],
+        'discord_username': result['discord_username']
+    }
   return None
-
-
-
 
 
 # Function to log standups internally
@@ -140,27 +133,33 @@ async def log_standups_internal(guild_id, channel):
 
 async def determine_streak_update(last_entry_date, entry_date):
   central_tz = pytz.timezone('America/Chicago')
-  last_entry_date = last_entry_date.astimezone(central_tz) if last_entry_date else None
+  last_entry_date = last_entry_date.astimezone(
+      central_tz) if last_entry_date else None
   entry_date = entry_date.astimezone(central_tz)
 
-  if last_entry_date is None or last_entry_date.date() != entry_date.date() - timedelta(days=1):
-      return 1
+  if last_entry_date is None or last_entry_date.date(
+  ) != entry_date.date() - timedelta(days=1):
+    return 1
   else:
-      return 1
-
+    return 1
 
 
 def make_button_callback(user_id, habit_id, habit_title):
+
   async def button_callback(interaction):
-      try:
-          # Call the function to record the habit entry in the database
-          await record_habit_entry(user_id, habit_id)
-          # Send a confirmation message to the user
-          await interaction.response.send_message(f"'{habit_title}' habit recorded successfully!", ephemeral=True)
-      except Exception as e:
-          # Handle any errors that occur during the database operation
-          print(f"Error recording habit entry: {e}")
-          await interaction.response.send_message("There was an error recording your habit. Please try again.", ephemeral=True)
+    try:
+      # Call the function to record the habit entry in the database
+      await record_habit_entry(user_id, habit_id)
+      # Send a confirmation message to the user
+      await interaction.response.send_message(
+          f"'{habit_title}' habit recorded successfully!", ephemeral=True)
+    except Exception as e:
+      # Handle any errors that occur during the database operation
+      print(f"Error recording habit entry: {e}")
+      await interaction.response.send_message(
+          "There was an error recording your habit. Please try again.",
+          ephemeral=True)
+
   return button_callback
 
 
@@ -250,92 +249,104 @@ async def log_standups(ctx):
 
 @bot.command(name='viewgoals', help='View your goals')
 async def view_goals_command(ctx):
-    await view_goals(ctx)
+  await view_goals(ctx)
+
 
 from goals import add_goal  # Make sure to import the add_goal function
 
+
 @bot.command(name='addgoal', help='Add a new goal')
 async def add_goal_command(ctx):
-    await add_goal(ctx)  # Call the add_goal function from goals.py
+  await add_goal(ctx)  # Call the add_goal function from goals.py
 
 
-@bot.command(name='removestandups', help='Remove the most recent standup data point for all users')
+@bot.command(name='removestandups',
+             help='Remove the most recent standup data point for all users')
 async def remove_standups(ctx):
-    guild_id = ctx.guild.id
+  guild_id = ctx.guild.id
 
-    # Fetch users and their Beeminder auth tokens for the guild
-    query = """
+  # Fetch users and their Beeminder auth tokens for the guild
+  query = """
         SELECT beeminder_username, beeminder_auth_token
         FROM users
         WHERE guild_id = :guild_id;
         """
-    users = await fetch_query(query, {'guild_id': guild_id})
+  users = await fetch_query(query, {'guild_id': guild_id})
 
-    if not users:
-        await ctx.send("No user data available for this guild.")
-        return
+  if not users:
+    await ctx.send("No user data available for this guild.")
+    return
 
-    successful_deletions = 0
-    errors = []
+  successful_deletions = 0
+  errors = []
 
-    async with aiohttp.ClientSession() as session:
-        for user in users:
-            beeminder_username = user['beeminder_username']
-            auth_token = user['beeminder_auth_token']
+  async with aiohttp.ClientSession() as session:
+    for user in users:
+      beeminder_username = user['beeminder_username']
+      auth_token = user['beeminder_auth_token']
 
-            # Fetch the most recent data point for the user
-            # This is a placeholder, you'll need to adjust based on how you can identify the data point to delete
-            data_point_id = await fetch_most_recent_data_point_id(beeminder_username, auth_token)
+      # Fetch the most recent data point for the user
+      # This is a placeholder, you'll need to adjust based on how you can identify the data point to delete
+      data_point_id = await fetch_most_recent_data_point_id(
+          beeminder_username, auth_token)
 
-            if not data_point_id:
-                errors.append(f"No data point found for {beeminder_username}")
-                continue
+      if not data_point_id:
+        errors.append(f"No data point found for {beeminder_username}")
+        continue
 
-            delete_url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints/{data_point_id}.json?auth_token={auth_token}"
+      delete_url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints/{data_point_id}.json?auth_token={auth_token}"
 
-            try:
-                async with session.delete(delete_url) as response:
-                    if response.status == 200:
-                        successful_deletions += 1
-                    else:
-                        error = await response.text()
-                        errors.append(f"Error for {beeminder_username}: {response.status} - {error}")
-            except Exception as e:
-                errors.append(f"Exception for {beeminder_username}: {str(e)}")
+      try:
+        async with session.delete(delete_url) as response:
+          if response.status == 200:
+            successful_deletions += 1
+          else:
+            error = await response.text()
+            errors.append(
+                f"Error for {beeminder_username}: {response.status} - {error}")
+      except Exception as e:
+        errors.append(f"Exception for {beeminder_username}: {str(e)}")
 
-    if successful_deletions == len(users):
-        await ctx.send("Most recent standup data point removed successfully for all users.")
-    else:
-        error_messages = '\n'.join(errors)
-        await ctx.send(f"Errors occurred during deletion:\n{error_messages}")
+  if successful_deletions == len(users):
+    await ctx.send(
+        "Most recent standup data point removed successfully for all users.")
+  else:
+    error_messages = '\n'.join(errors)
+    await ctx.send(f"Errors occurred during deletion:\n{error_messages}")
+
 
 async def fetch_most_recent_data_point_id(beeminder_username, auth_token):
   # Beeminder API URL to fetch all data points for a user's goal
   url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints.json?auth_token={auth_token}"
 
   async with aiohttp.ClientSession() as session:
-      try:
-          async with session.get(url) as response:
-              if response.status == 200:
-                  data_points = await response.json()
+    try:
+      async with session.get(url) as response:
+        if response.status == 200:
+          data_points = await response.json()
 
-                  if not data_points:
-                      print(f"No data points found for {beeminder_username}")
-                      return None
+          if not data_points:
+            print(f"No data points found for {beeminder_username}")
+            return None
 
-                  # Sort the data points by the 'updated_at' or 'timestamp' field to find the most recent one
-                  # Assuming that the data points are returned as a list of dictionaries
-                  most_recent_data_point = max(data_points, key=lambda x: x['timestamp'])
+          # Sort the data points by the 'updated_at' or 'timestamp' field to find the most recent one
+          # Assuming that the data points are returned as a list of dictionaries
+          most_recent_data_point = max(data_points,
+                                       key=lambda x: x['timestamp'])
 
-                  # Return the ID of the most recent data point
-                  return most_recent_data_point['id']
-              else:
-                  error = await response.text()
-                  print(f"Error fetching data points for {beeminder_username}: {response.status} - {error}")
-                  return None
-      except Exception as e:
-          print(f"Exception occurred while fetching data points for {beeminder_username}: {str(e)}")
+          # Return the ID of the most recent data point
+          return most_recent_data_point['id']
+        else:
+          error = await response.text()
+          print(
+              f"Error fetching data points for {beeminder_username}: {response.status} - {error}"
+          )
           return None
+    except Exception as e:
+      print(
+          f"Exception occurred while fetching data points for {beeminder_username}: {str(e)}"
+      )
+      return None
 
 
 @bot.event
@@ -377,7 +388,8 @@ async def on_voice_state_update(member, before, after):
                                                 {"guild_id": guild_id})
           user_count = user_count_result[0][0] if user_count_result else 0
           print("dates", today_date, last_log_date)
-          if len(after.channel.members) == user_count and (today_date != last_log_date):
+          if len(after.channel.members) == user_count and (today_date
+                                                           != last_log_date):
             print("Logging standup...")
             text_channel = discord.utils.get(after.channel.guild.text_channels,
                                              name=monitored_channel_name)
@@ -456,124 +468,385 @@ async def info(ctx):
       f"- Last Log Date: {last_log_date}\n")
   await ctx.send(info_message)
 
+
 @bot.command(name='dailyupdate2', help='Send your daily update')
 async def daily_update(ctx):
-    if not isinstance(ctx.channel, discord.DMChannel):
-        await ctx.send("This command can only be used in DMs.")
-        return
+  if not isinstance(ctx.channel, discord.DMChannel):
+    await ctx.send("This command can only be used in DMs.")
+    return
 
-    user_info = await fetch_user_info(ctx.author.id, database)
-    if not user_info:
-        await ctx.send("Could not find your user information in the database.")
-        return
+  user_info = await fetch_user_info(ctx.author.id, database)
+  if not user_info:
+    await ctx.send("Could not find your user information in the database.")
+    return
 
-    guild_id = user_info['guild_id']
-    guild = bot.get_guild(guild_id)
-    if not guild:
-        await ctx.send("Could not find the guild associated with your user information.")
-        return
+  guild_id = user_info['guild_id']
+  guild = bot.get_guild(guild_id)
+  if not guild:
+    await ctx.send(
+        "Could not find the guild associated with your user information.")
+    return
 
-    guild_info_result = await fetch_query("""
+  guild_info_result = await fetch_query(
+      """
         SELECT monitored_channel_name
         FROM guilds
         WHERE guild_id = :guild_id;
     """, {"guild_id": guild_id})
 
-    if not guild_info_result or len(guild_info_result) == 0:
-        await ctx.send("Monitored channel not set for the associated guild.")
-        return
+  if not guild_info_result or len(guild_info_result) == 0:
+    await ctx.send("Monitored channel not set for the associated guild.")
+    return
 
-    monitored_channel_name = guild_info_result[0]['monitored_channel_name']
-    channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
-    if not channel:
-        await ctx.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
-        return
+  monitored_channel_name = guild_info_result[0]['monitored_channel_name']
+  channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
+  if not channel:
+    await ctx.send(
+        f"Monitored text channel '{monitored_channel_name}' not found in the associated guild."
+    )
+    return
 
-    thread = await get_or_create_thread(channel, ctx.author.display_name)
+  thread = await get_or_create_thread(channel, ctx.author.display_name)
 
-    todoist_token = await fetch_todoist_token(ctx.author.id, database)
-    completed_message = f"🌟 **Daily Update for @{ctx.author.name}** 🌟\n\n"
+  todoist_token = await fetch_todoist_token(ctx.author.id, database)
+  completed_message = f"🌟 **Daily Update for @{ctx.author.name}** 🌟\n\n"
 
-    if todoist_token:
-        completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
-        completed_message += "🎯 **Completed Tasks Yesterday:**\n"
-        if completed_tasks:
-            for task in completed_tasks:
-                completed_message += f"✅ {task['content']}\n"
-        else:
-            completed_message += "No tasks completed yesterday.\n"
-
-        today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
-        completed_message += "\n🚀 **Today's Tasks:**\n"
-        if today_tasks:
-            for task in today_tasks:
-                completed_message += f"🕒 {task[0]}\n"
-        else:
-            completed_message += "You're all clear for today!\n"
+  if todoist_token:
+    completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
+    completed_message += "🎯 **Completed Tasks Yesterday:**\n"
+    if completed_tasks:
+      for task in completed_tasks:
+        completed_message += f"✅ {task['content']}\n"
     else:
-        completed_message += "\nTodoist API token not found. Please set it up.\n"
+      completed_message += "No tasks completed yesterday.\n"
 
-    habits = await fetch_user_habits(ctx.author.id)
-    completed_message += "\n💪 **Habit Tracker:**\n"
-    if habits:
-        for habit in habits:
-            # Placeholder for 7-Day Momentum percentage
-            momentum = await calculate_7_day_momentum(str(ctx.author.id), habit['id'], database)
-            completed_message += f"**{habit['title']}**\nStreak: {habit['streak']} 🔥 | Overall: {habit['overall_counter']} | 7-Day: {momentum}%\n"
+    today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+    completed_message += "\n🚀 **Today's Tasks:**\n"
+    if today_tasks:
+      for task in today_tasks:
+        completed_message += f"🕒 {task[0]}\n"
     else:
-        completed_message += "You have no habits recorded.\n"
+      completed_message += "You're all clear for today!\n"
+  else:
+    completed_message += "\nTodoist API token not found. Please set it up.\n"
 
-    await thread.send(completed_message)
+  habits = await fetch_user_habits(ctx.author.id)
+  completed_message += "\n💪 **Habit Tracker:**\n"
+  if habits:
+    for habit in habits:
+      # Placeholder for 7-Day Momentum percentage
+      momentum = await calculate_7_day_momentum(str(ctx.author.id),
+                                                habit['id'], database)
+      completed_message += f"**{habit['title']}**\nStreak: {habit['streak']} 🔥 | Overall: {habit['overall_counter']} | 7-Day: {momentum}%\n"
+  else:
+    completed_message += "You have no habits recorded.\n"
+
+  await thread.send(completed_message)
 
 
+async def fetch_subscribed_users():
+  # Example query, adjust according to your database schema
+  query = "SELECT discord_id, guild_id FROM users WHERE daily_updates = TRUE"
+  print("Fetching subscribed users...")
+  return await fetch_query(query)
+
+
+@aiocron.crontab('28 1 * * *')
+async def automated_daily_updates():
+  print(
+      f"Automated daily updates triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+  )
+  subscribed_users = await fetch_subscribed_users()  # Implement this
+  print("subscribed users", subscribed_users)  # Add this line to debu
+  for user in subscribed_users:
+    await send_user_daily_update(user['discord_id'], user['guild_id'])
+
+
+# @bot.command(name='triggerupdates', help='Manually trigger daily updates for testing.')
+# async def trigger_updates(ctx):
+#     await ctx.send("Starting manual trigger of daily updates...")
+#     await automated_daily_updates()  # Call the function directly
+#     local_time_with_zone = datetime.now().astimezone().tzinfo
+#     print(f"Server's Local Time Zone: {local_time_with_zone}")
+#     await ctx.send("Manual trigger of daily updates completed.")
+
+
+# for testing automated daily updates
+async def send_user_daily_update(user_id, guild_id):
+  user = bot.get_user(user_id)
+  if not user:
+    print(f"Could not find user with ID {user_id}.")
+    return
+
+  guild = bot.get_guild(guild_id)
+  if not guild:
+    print(f"Could not find guild with ID {guild_id}.")
+    return
+
+  user_info = await fetch_user_info(user_id, database)
+  if not user_info:
+    await user.send("Could not find your user information in the database.")
+    return
+
+  guild_info_result = await fetch_query(
+      """
+      SELECT monitored_channel_name
+      FROM guilds
+      WHERE guild_id = :guild_id;
+  """, {"guild_id": guild_id})
+
+  if not guild_info_result or len(guild_info_result) == 0:
+    await user.send("Monitored channel not set for the associated guild.")
+    return
+
+  monitored_channel_name = guild_info_result[0]['monitored_channel_name']
+  channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
+  if not channel:
+    await user.send(
+        f"Monitored text channel '{monitored_channel_name}' not found in the associated guild."
+    )
+    return
+
+  thread = await get_or_create_thread(channel, user.display_name)
+
+  todoist_token = await fetch_todoist_token(user_id, database)
+  completed_message = f"🌟 **Daily Update for @{user.name}** 🌟\n\n"
+
+  if todoist_token:
+    completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
+    completed_message += "🎯 **Completed Tasks Yesterday:**\n"
+    if completed_tasks:
+      for task in completed_tasks:
+        completed_message += f"✅ {task['content']}\n"
+    else:
+      completed_message += "No tasks completed yesterday.\n"
+
+    today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+    completed_message += "\n🚀 **Today's Tasks:**\n"
+    if today_tasks:
+      for task in today_tasks:
+        completed_message += f"🕒 {task[0]}\n"
+    else:
+      completed_message += "You're all clear for today!\n"
+  else:
+    completed_message += "\nTodoist API token not found. Please set it up.\n"
+
+  habits = await fetch_user_habits(user_id)
+  completed_message += "\n💪 **Habit Tracker:**\n"
+  if habits:
+    for habit in habits:
+      momentum = await calculate_7_day_momentum(str(user_id), habit['id'],
+                                                database)
+      completed_message += f"**{habit['title']}**\nStreak: {habit['streak']} 🔥 | Overall: {habit['overall_counter']} | 7-Day: {momentum}%\n"
+  else:
+    completed_message += "You have no habits recorded.\n"
+
+  await thread.send(completed_message)
+
+# # Command to set the monitored channel
+# @bot.command(name='setchannel',
+#              help='Set a channel to be monitored by the bot')
+# async def set_channel(ctx, *, channel_name: str):
+#   guild_id = str(ctx.guild.id)
+#   voice_channel = discord.utils.get(ctx.guild.voice_channels,
+#                                     name=channel_name)
+
+#   if voice_channel:
+#     data = read_data()
+#     if guild_id not in data:
+#       data[guild_id] = {}
+#     data[guild_id]["monitored_channel_id"] = voice_channel.id
+#     data[guild_id]["monitored_channel_name"] = channel_name
+#     write_data(data)
+
+#     await ctx.send(f"Voice channel '{channel_name}' is now being monitored.")
+#   else:
+#     await ctx.send(f"No voice channel named '{channel_name}' found.")
+
+@bot.command(name='setchannel',
+   help='Set a channel to be monitored by the bot')
+async def set_channel(ctx, *, channel_name: str):
+  guild_id = str(ctx.guild.id)
+  voice_channel = discord.utils.get(ctx.guild.voice_channels, name=channel_name)
+  
+  if voice_channel:
+  # Check if the guild is already in the database
+    check_guild_query = """
+      SELECT guild_id FROM guilds WHERE guild_id = :guild_id;
+    """
+    guild_exists = await fetch_query(check_guild_query, {"guild_id": guild_id})
+  
+    # If the guild is not in the database, insert it
+    if not guild_exists:
+      insert_guild_query = """
+          INSERT INTO guilds (guild_id, monitored_channel_id, monitored_channel_name)
+          VALUES (:guild_id, :monitored_channel_id, :monitored_channel_name);
+      """
+      await execute_query(insert_guild_query, {
+          "guild_id": int(guild_id),
+          "monitored_channel_id": voice_channel.id,
+          "monitored_channel_name": channel_name
+      })
+    else:
+      # Update the monitored channel details in the database
+      update_guild_query = """
+          UPDATE guilds
+          SET monitored_channel_id = :monitored_channel_id, monitored_channel_name = :monitored_channel_name
+          WHERE guild_id = :guild_id;
+      """
+      await execute_query(update_guild_query, {
+          "guild_id": int(guild_id),
+          "monitored_channel_id": voice_channel.id,
+          "monitored_channel_name": channel_name
+      })
+    
+    await ctx.send(f"Voice channel '{channel_name}' is now being monitored.")
+  else:
+    await ctx.send(f"No voice channel named '{channel_name}' found.")
+  
+@bot.command(
+  name='adduser',
+  help='Add a user with their authToken. Usage: !adduser [username] [authToken]')
+async def add_user(ctx, username: str, authToken: str):
+  if not username or not authToken:
+      await ctx.send("Please provide both a username and an authToken.")
+      return
+
+  guild_id = ctx.guild.id
+  # Check if the user already exists in the database
+  check_user_query = """
+      SELECT beeminder_username FROM users WHERE guild_id = :guild_id AND beeminder_username = :username;
+  """
+  user_exists = await fetch_query(check_user_query, {"guild_id": guild_id, "username": username})
+
+  if user_exists:
+      # Update the existing user's authToken
+      update_user_query = """
+          UPDATE users
+          SET beeminder_auth_token = :authToken
+          WHERE guild_id = :guild_id AND beeminder_username = :username;
+      """
+      await execute_query(update_user_query, {
+          "guild_id": guild_id,
+          "username": username,
+          "authToken": authToken
+      })
+      operation = "updated"
+  else:
+      # Insert the new user into the database
+      insert_user_query = """
+          INSERT INTO users (guild_id, beeminder_username, beeminder_auth_token)
+          VALUES (:guild_id, :username, :authToken);
+      """
+      await execute_query(insert_user_query, {
+          "guild_id": guild_id,
+          "username": username,
+          "authToken": authToken
+      })
+      operation = "added"
+
+  await ctx.send(f"User {username} {operation} successfully.")
+
+
+# # Command to add a user with their authToken
+# @bot.command(
+#     name='adduser',
+#     help=
+#     'Add a user with their authToken. Usage: !adduser [username] [authToken]')
+# async def add_user(ctx, username: str, authToken: str):
+#   if username is None or authToken is None:
+#     await ctx.send("Please provide both a username and an authToken.")
+#     return
+#   guild_id = str(ctx.guild.id)
+#   data = read_data()
+#   if guild_id not in data:
+#     data[guild_id] = {"user_data": {}}
+#   data[guild_id]["user_data"][username] = authToken
+#   write_data(data)
+#   await ctx.send(f"User {username} added/updated successfully.")
+
+
+# # Command to delete a user
+# @bot.command(name='deleteuser',
+#              help='Delete a user from the bot. Usage: !deleteuser [username]')
+# async def delete_user(ctx, username: str):
+#   guild_id = str(ctx.guild.id)
+#   data = read_data()
+#   if guild_id in data and username in data[guild_id].get("user_data", {}):
+#     del data[guild_id]["user_data"][username]
+#     write_data(data)
+#     await ctx.send(f"User {username} has been removed.")
+#   else:
+#     await ctx.send(f"User {username} not found in stored data.")
+
+
+# # Command to list all users stored in the bot
+# @bot.command(name='listusers', help='List all users stored in the bot')
+# async def list_users(ctx):
+#   guild_id = str(ctx.guild.id)
+#   data = read_data()
+#   user_data = data.get(guild_id, {}).get("user_data", {})
+#   if not user_data:
+#     await ctx.send("No users are currently stored.")
+#     return
+#   users_list = '\n'.join([f"- {username}" for username in user_data])
+#   await ctx.send(f"Stored users:\n{users_list}")
 
 
 # Update command definitions to use functions from habits.py
 @bot.command(name='addhabit', help='Add a new habit')
 async def add_habit_command(ctx, *, habit_title):
-    await add_habit(ctx, habit_title)
+  await add_habit(ctx, habit_title)
+
 
 @bot.command(name='deletehabit', help='Delete a habit')
 async def delete_habit_command(ctx, *, habit_title):
-    await delete_habit(ctx, habit_title)
+  await delete_habit(ctx, habit_title)
+
 
 @bot.command(name='dailyupdate', help='Daily Update w/ Habits')
 async def record_habit(ctx):
   if not isinstance(ctx.channel, discord.DMChannel):
-      await ctx.send("Please use this command in a Direct Message with me.")
-      return
+    await ctx.send("Please use this command in a Direct Message with me.")
+    return
 
   user_id = str(ctx.author.id)
   user_habits = await fetch_user_habits(user_id)
 
   if not user_habits:
-      await ctx.send("You don't have any habits set up yet.")
-      return
+    await ctx.send("You don't have any habits set up yet.")
+    return
 
   view = View()
 
   for habit in user_habits:
-      habit_id, habit_title = habit['id'], habit['title']
+    habit_id, habit_title = habit['id'], habit['title']
 
-      button = Button(label=habit_title, style=discord.ButtonStyle.primary)
+    button = Button(label=habit_title, style=discord.ButtonStyle.primary)
 
-      async def button_callback(interaction, habit_id=habit_id, habit_title=habit_title, user_id=user_id):
-          try:
-              await record_habit_entry(user_id, habit_id)
-              await interaction.response.send_message(f"'{habit_title}' recorded!")
-          except Exception as e:
-              print(f"Error recording habit entry: {e}")
-              await interaction.response.send_message("Failed to record habit entry. Please try again later.")
+    async def button_callback(interaction,
+                              habit_id=habit_id,
+                              habit_title=habit_title,
+                              user_id=user_id):
+      try:
+        await record_habit_entry(user_id, habit_id)
+        await interaction.response.send_message(f"'{habit_title}' recorded!")
+      except Exception as e:
+        print(f"Error recording habit entry: {e}")
+        await interaction.response.send_message(
+            "Failed to record habit entry. Please try again later.")
 
-      button.callback = button_callback
-      view.add_item(button)
+    button.callback = button_callback
+    view.add_item(button)
 
   # Finish button
   finish_button = Button(label="Finish", style=discord.ButtonStyle.green)
 
   async def finish_callback(interaction):
     # Inform the user that their habits recording session is concluded
-    await interaction.response.send_message("Finishing habit recording. Processing your daily update...", ephemeral=True)
+    await interaction.response.send_message(
+        "Finishing habit recording. Processing your daily update...",
+        ephemeral=True)
 
     # Directly call the daily_update function here
     await daily_update(ctx)
@@ -581,45 +854,45 @@ async def record_habit(ctx):
   finish_button.callback = finish_callback
   view.add_item(finish_button)
 
-  await ctx.send("Select a habit to record or click 'Finish' when done:", view=view)
+  await ctx.send("Select a habit to record or click 'Finish' when done:",
+                 view=view)
+
 
 @bot.command(name='displayhabits', help='Display completed habits summary')
 async def display_habits(ctx):
-    # Get the user's Discord ID
-    user_id = ctx.author.id
+  # Get the user's Discord ID
+  user_id = ctx.author.id
 
-    # Get today's date and yesterday's date
-    today_date = datetime.now().date()
-    yesterday_date = today_date - timedelta(days=1)
+  # Get today's date and yesterday's date
+  today_date = datetime.now().date()
+  yesterday_date = today_date - timedelta(days=1)
 
-    # Fetch habits completed today and yesterday for the user
-    today_habits = await fetch_completed_habits(user_id, today_date)
-    yesterday_habits = await fetch_completed_habits(user_id, yesterday_date)
+  # Fetch habits completed today and yesterday for the user
+  today_habits = await fetch_completed_habits(user_id, today_date)
+  yesterday_habits = await fetch_completed_habits(user_id, yesterday_date)
 
-    # Prepare the message
-    message = "**Habit Summary**\n-----------------\n"
+  # Prepare the message
+  message = "**Habit Summary**\n-----------------\n"
 
-    # Add completed habits for today
-    if today_habits:
-        message += "**Completed Today:**\n"
-        for habit in today_habits:
-            message += f"{habit['title']} - Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']}\n"
-    else:
-        message += "No habits completed today.\n"
+  # Add completed habits for today
+  if today_habits:
+    message += "**Completed Today:**\n"
+    for habit in today_habits:
+      message += f"{habit['title']} - Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']}\n"
+  else:
+    message += "No habits completed today.\n"
 
-    # Add completed habits for yesterday
-    if yesterday_habits:
-        message += "\n**Completed Yesterday:**\n"
-        for habit in yesterday_habits:
-            message += f"{habit['title']} - Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']}\n"
-    else:
-        message += "No habits completed yesterday.\n"
+  # Add completed habits for yesterday
+  if yesterday_habits:
+    message += "\n**Completed Yesterday:**\n"
+    for habit in yesterday_habits:
+      message += f"{habit['title']} - Streak: {habit['streak']}, Overall Counter: {habit['overall_counter']}\n"
+  else:
+    message += "No habits completed yesterday.\n"
 
-    # Send the message
-    await ctx.send(message)
+  # Send the message
+  await ctx.send(message)
 
-
-  
 
 def run():
   app.run(host='0.0.0.0', port=8080)
