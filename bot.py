@@ -78,57 +78,72 @@ async def fetch_user_info(user_id, database):
   return None
 
 
-# Function to log standups internally
+#Log standups internally
 async def log_standups_internal(guild_id, channel):
+  # Fetch the goal for the guild
+  goal_query = """
+      SELECT goal
+      FROM guilds
+      WHERE guild_id = :guild_id;
+  """
+  goal_result = await fetch_query(goal_query, {'guild_id': guild_id})
+
+  if not goal_result:
+      print("No goal data available for this guild.")
+      return
+
+  goal = goal_result[0]['goal']
+
   # Fetch users with their Beeminder auth tokens for the guild
-  query = """
-    SELECT beeminder_username, beeminder_auth_token
-    FROM users
-    WHERE guild_id = :guild_id;
-    """
-  users = await fetch_query(query, {'guild_id': guild_id})
+  user_query = """
+      SELECT beeminder_username, beeminder_auth_token
+      FROM users
+      WHERE guild_id = :guild_id;
+  """
+  users = await fetch_query(user_query, {'guild_id': guild_id})
 
   if not users:
-    print("No user data available for this guild.")
-    return
+      print("No user data available for this guild.")
+      return
 
   successful_requests = 0
   errors = []
 
   async with aiohttp.ClientSession() as session:
-    for user in users:
-      beeminder_username = user['beeminder_username']
-      auth_token = user['beeminder_auth_token']
-      apiUrl = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints.json"
-      postData = {
-          'auth_token': auth_token,
-          'timestamp': int(time.time()),
-          'value': 1,
-          'comment': 'logged via discord bot'
-      }
+      for user in users:
+          beeminder_username = user['beeminder_username']
+          auth_token = user['beeminder_auth_token']
+          apiUrl = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/{goal}/datapoints.json"
+          postData = {
+              'auth_token': auth_token,
+              'timestamp': int(time.time()),
+              'value': 1,
+              'comment': 'logged via discord bot'
+          }
 
-      if SANDBOX_MODE:
-        # Mock POST for demonstration
-        await channel.send(f"Mock POST to {apiUrl} with data: {postData}")
-        successful_requests += 1
-      else:
-        try:
-          async with session.post(apiUrl, data=postData) as response:
-            if response.status == 200:
+          if SANDBOX_MODE:
+              # Mock POST for demonstration
+              await channel.send(f"Mock POST to {apiUrl} with data: {postData}")
               successful_requests += 1
-            else:
-              error = await response.text()
-              errors.append(
-                  f"Error for {beeminder_username}: {response.status} - {error}"
-              )
-        except Exception as e:
-          errors.append(f"Exception for {beeminder_username}: {str(e)}")
+          else:
+              try:
+                  async with session.post(apiUrl, data=postData) as response:
+                      if response.status == 200:
+                          successful_requests += 1
+                      else:
+                          error = await response.text()
+                          errors.append(
+                              f"Error for {beeminder_username}: {response.status} - {error}"
+                          )
+              except Exception as e:
+                  errors.append(f"Exception for {beeminder_username}: {str(e)}")
 
   if successful_requests == len(users):
-    print("Standup logged successfully for all users.")
+      print("Standup logged successfully for all users.")
   else:
-    error_messages = '\n'.join(errors)
-    print(f"Errors occurred:\n{error_messages}")
+      error_messages = '\n'.join(errors)
+      print(f"Errors occurred:\n{error_messages}")
+
 
 
 async def determine_streak_update(last_entry_date, entry_date):
@@ -192,27 +207,64 @@ async def toggle_sandbox_mode(ctx):
   await ctx.send(f"Sandbox mode is now {'True' if SANDBOX_MODE else 'False'}.")
 
 
+# @bot.command(name='graphs', help='Display Beeminder graphs for all users')
+# async def graphs(ctx):
+#   timestamp = int(time.time())
+#   guild_id = ctx.guild.id
+
+#   # Fetch Beeminder usernames for users in the guild
+#   query = """
+#     SELECT beeminder_username
+#     FROM users
+#     WHERE guild_id = :guild_id;
+#     """
+#   users = await fetch_query(query, {'guild_id': guild_id})
+
+#   if not users:
+#     await ctx.send("No user data available.")
+#     return
+
+#   for user in users:
+#     beeminder_username = user['beeminder_username']
+#     graph_url = f"https://www.beeminder.com/{beeminder_username}/standup.png?{timestamp}"
+#     await ctx.send(f"Graph for {beeminder_username}: {graph_url}")
+
 @bot.command(name='graphs', help='Display Beeminder graphs for all users')
 async def graphs(ctx):
-  timestamp = int(time.time())
-  guild_id = ctx.guild.id
+    timestamp = int(time.time())
+    guild_id = ctx.guild.id
 
-  # Fetch Beeminder usernames for users in the guild
-  query = """
-    SELECT beeminder_username
-    FROM users
-    WHERE guild_id = :guild_id;
+    # Fetch the goal for the guild
+    goal_query = """
+        SELECT goal
+        FROM guilds
+        WHERE guild_id = :guild_id;
     """
-  users = await fetch_query(query, {'guild_id': guild_id})
+    goal_result = await fetch_query(goal_query, {'guild_id': guild_id})
 
-  if not users:
-    await ctx.send("No user data available.")
-    return
+    if not goal_result:
+        await ctx.send("No goal data available for this guild.")
+        return
 
-  for user in users:
-    beeminder_username = user['beeminder_username']
-    graph_url = f"https://www.beeminder.com/{beeminder_username}/standup.png?{timestamp}"
-    await ctx.send(f"Graph for {beeminder_username}: {graph_url}")
+    goal = goal_result[0]['goal']
+
+    # Fetch Beeminder usernames for users in the guild
+    user_query = """
+        SELECT beeminder_username
+        FROM users
+        WHERE guild_id = :guild_id;
+    """
+    users = await fetch_query(user_query, {'guild_id': guild_id})
+
+    if not users:
+        await ctx.send("No user data available.")
+        return
+
+    for user in users:
+        beeminder_username = user['beeminder_username']
+        graph_url = f"https://www.beeminder.com/{beeminder_username}/{goal}.png?{timestamp}"
+        await ctx.send(f"Graph for {beeminder_username}: {graph_url}")
+
 
 
 @bot.command(name='logstandups',
@@ -493,7 +545,7 @@ async def daily_update(ctx):
         FROM guilds
         WHERE guild_id = :guild_id;
     """, {"guild_id": guild_id})
-
+  print("Fetching guild info result:", guild_info_result)
   if not guild_info_result or len(guild_info_result) == 0:
     await ctx.send("Monitored channel not set for the associated guild.")
     return
@@ -551,15 +603,6 @@ async def fetch_subscribed_users():
   return await fetch_query(query)
 
 
-@aiocron.crontab('28 1 * * *')
-async def automated_daily_updates():
-  print(
-      f"Automated daily updates triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-  )
-  subscribed_users = await fetch_subscribed_users()  # Implement this
-  print("subscribed users", subscribed_users)  # Add this line to debu
-  for user in subscribed_users:
-    await send_user_daily_update(user['discord_id'], user['guild_id'])
 
 
 # @bot.command(name='triggerupdates', help='Manually trigger daily updates for testing.')
@@ -571,97 +614,6 @@ async def automated_daily_updates():
 #     await ctx.send("Manual trigger of daily updates completed.")
 
 
-# for testing automated daily updates
-async def send_user_daily_update(user_id, guild_id):
-  user = bot.get_user(user_id)
-  if not user:
-    print(f"Could not find user with ID {user_id}.")
-    return
-
-  guild = bot.get_guild(guild_id)
-  if not guild:
-    print(f"Could not find guild with ID {guild_id}.")
-    return
-
-  user_info = await fetch_user_info(user_id, database)
-  if not user_info:
-    await user.send("Could not find your user information in the database.")
-    return
-
-  guild_info_result = await fetch_query(
-      """
-      SELECT monitored_channel_name
-      FROM guilds
-      WHERE guild_id = :guild_id;
-  """, {"guild_id": guild_id})
-
-  if not guild_info_result or len(guild_info_result) == 0:
-    await user.send("Monitored channel not set for the associated guild.")
-    return
-
-  monitored_channel_name = guild_info_result[0]['monitored_channel_name']
-  channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
-  if not channel:
-    await user.send(
-        f"Monitored text channel '{monitored_channel_name}' not found in the associated guild."
-    )
-    return
-
-  thread = await get_or_create_thread(channel, user.display_name)
-
-  todoist_token = await fetch_todoist_token(user_id, database)
-  completed_message = f"🌟 **Daily Update for @{user.name}** 🌟\n\n"
-
-  if todoist_token:
-    completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
-    completed_message += "🎯 **Completed Tasks Yesterday:**\n"
-    if completed_tasks:
-      for task in completed_tasks:
-        completed_message += f"✅ {task['content']}\n"
-    else:
-      completed_message += "No tasks completed yesterday.\n"
-
-    today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
-    completed_message += "\n🚀 **Today's Tasks:**\n"
-    if today_tasks:
-      for task in today_tasks:
-        completed_message += f"🕒 {task[0]}\n"
-    else:
-      completed_message += "You're all clear for today!\n"
-  else:
-    completed_message += "\nTodoist API token not found. Please set it up.\n"
-
-  habits = await fetch_user_habits(user_id)
-  completed_message += "\n💪 **Habit Tracker:**\n"
-  if habits:
-    for habit in habits:
-      momentum = await calculate_7_day_momentum(str(user_id), habit['id'],
-                                                database)
-      completed_message += f"**{habit['title']}**\nStreak: {habit['streak']} 🔥 | Overall: {habit['overall_counter']} | 7-Day: {momentum}%\n"
-  else:
-    completed_message += "You have no habits recorded.\n"
-
-  await thread.send(completed_message)
-
-# # Command to set the monitored channel
-# @bot.command(name='setchannel',
-#              help='Set a channel to be monitored by the bot')
-# async def set_channel(ctx, *, channel_name: str):
-#   guild_id = str(ctx.guild.id)
-#   voice_channel = discord.utils.get(ctx.guild.voice_channels,
-#                                     name=channel_name)
-
-#   if voice_channel:
-#     data = read_data()
-#     if guild_id not in data:
-#       data[guild_id] = {}
-#     data[guild_id]["monitored_channel_id"] = voice_channel.id
-#     data[guild_id]["monitored_channel_name"] = channel_name
-#     write_data(data)
-
-#     await ctx.send(f"Voice channel '{channel_name}' is now being monitored.")
-#   else:
-#     await ctx.send(f"No voice channel named '{channel_name}' found.")
 
 @bot.command(name='setchannel',
    help='Set a channel to be monitored by the bot')
@@ -747,23 +699,6 @@ async def add_user(ctx, username: str, authToken: str):
 
   await ctx.send(f"User {username} {operation} successfully.")
 
-
-# # Command to add a user with their authToken
-# @bot.command(
-#     name='adduser',
-#     help=
-#     'Add a user with their authToken. Usage: !adduser [username] [authToken]')
-# async def add_user(ctx, username: str, authToken: str):
-#   if username is None or authToken is None:
-#     await ctx.send("Please provide both a username and an authToken.")
-#     return
-#   guild_id = str(ctx.guild.id)
-#   data = read_data()
-#   if guild_id not in data:
-#     data[guild_id] = {"user_data": {}}
-#   data[guild_id]["user_data"][username] = authToken
-#   write_data(data)
-#   await ctx.send(f"User {username} added/updated successfully.")
 
 
 # # Command to delete a user
@@ -892,6 +827,13 @@ async def display_habits(ctx):
 
   # Send the message
   await ctx.send(message)
+
+@bot.command(name='discordid', help='Get the Discord ID of a mentioned user.')
+async def discord_id(ctx, user: discord.Member = None):
+    if user is None:
+        await ctx.send("Please mention a user to get their Discord ID.")
+    else:
+        await ctx.send(f"The Discord ID of {user.mention} is `{user.id}`.")
 
 
 def run():
