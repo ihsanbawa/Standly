@@ -515,8 +515,8 @@ async def info(ctx):
       f"- Last Log Date: {last_log_date}\n")
   await ctx.send(info_message)
 
-
-@bot.command(name='dailyupdate2', help='Send your daily update')
+#original dailyupdate2 command
+@bot.command(name='t', help='Send your daily update')
 async def daily_update(ctx):
   if not isinstance(ctx.channel, discord.DMChannel):
     await ctx.send("This command can only be used in DMs.")
@@ -736,8 +736,8 @@ async def add_habit_command(ctx, *, habit_title):
 async def delete_habit_command(ctx, *, habit_title):
   await delete_habit(ctx, habit_title)
 
-
-@bot.command(name='dailyupdate', help='Daily Update w/ Habits')
+#original dailyupdate command
+@bot.command(name='d', help='Daily Update w/ Habits')
 async def record_habit(ctx):
   if not isinstance(ctx.channel, discord.DMChannel):
     await ctx.send("Please use this command in a Direct Message with me.")

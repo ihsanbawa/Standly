@@ -32,62 +32,75 @@ async def generate_random_uuid():
 
 
 async def record_habit_entry(user_id, habit_id, quantity=None):
-    print(f"Starting to record habit entry for user {user_id} and habit {habit_id}")
+  print(f"Starting to record habit entry for user {user_id} and habit {habit_id}")
 
-    central_tz = pytz.timezone('America/Chicago')
-    entry_date = datetime.now(central_tz)
-    print(f"Entry date (Central Time): {entry_date}")
+  central_tz = pytz.timezone('America/Chicago')
+  entry_date = datetime.now(central_tz)
+  print(f"Entry date (Central Time): {entry_date}")
 
-    async with database.transaction():
-        last_entry_query = """
-            SELECT entry_date FROM habit_entries
-            WHERE user_id = :user_id AND habit_id = :habit_id
-            ORDER BY entry_date DESC LIMIT 1
-        """
-        last_entry = await database.fetch_one(last_entry_query, {'user_id': user_id, 'habit_id': habit_id})
-        last_entry_date = last_entry['entry_date'] if last_entry else None
+  streak_update = await determine_streak_update(user_id, habit_id, entry_date)
 
-        streak_update = await determine_streak_update(last_entry_date, entry_date)
+  # Update the streak and overall counter in the habits table
+  current_streak_query = """
+      SELECT streak, overall_counter FROM habits WHERE id = :habit_id
+  """
+  current_streak_data = await database.fetch_one(current_streak_query, {'habit_id': habit_id})
+  new_streak = current_streak_data['streak'] + 1 if streak_update == 1 else 1
+  new_overall_counter = current_streak_data['overall_counter'] + 1
 
-        streak_update_query = """
-            UPDATE habits SET 
-                streak = streak + :streak_update,
-                overall_counter = overall_counter + 1
-            WHERE id = :habit_id
-        """
-        await database.execute(streak_update_query, {
-            'streak_update': streak_update,
-            'habit_id': habit_id
-        })
-        print("Habit streak and overall counter updated.")
+  streak_update_query = """
+      UPDATE habits SET 
+          streak = :new_streak, 
+          overall_counter = :new_overall_counter
+      WHERE id = :habit_id
+  """
+  await database.execute(streak_update_query, {
+      'new_streak': new_streak,
+      'new_overall_counter': new_overall_counter,
+      'habit_id': habit_id
+  })
+  print("Habit streak and overall counter updated.")
 
-        new_entry_id = await generate_random_uuid()
+  new_entry_id = await generate_random_uuid()
+  insert_entry_query = """
+      INSERT INTO habit_entries (id, habit_id, entry_date, quantity, user_id)
+      VALUES (:new_entry_id, :habit_id, :entry_date, :quantity, :user_id)
+  """
+  quantity_value = int(quantity) if quantity is not None else 1
+  await database.execute(insert_entry_query, {
+      'new_entry_id': new_entry_id,
+      'habit_id': habit_id,
+      'entry_date': entry_date,
+      'quantity': quantity_value,
+      'user_id': user_id
+  })
+  print("New habit entry recorded.")
 
-        insert_entry_query = """
-            INSERT INTO habit_entries (id, habit_id, entry_date, quantity, user_id)
-            VALUES (:new_entry_id, :habit_id, :entry_date, :quantity, :user_id)
-        """
 
-        quantity_value = int(quantity) if quantity is not None else 1
+async def determine_streak_update(user_id, habit_id, entry_date):
+  central_tz = pytz.timezone('America/Chicago')
+  entry_date = entry_date.astimezone(central_tz)
 
-        await database.execute(insert_entry_query, {
-            'new_entry_id': new_entry_id,
-            'habit_id': habit_id,
-            'entry_date': entry_date,
-            'quantity': quantity_value,
-            'user_id': user_id
-        })
-        print("New habit entry recorded.")
+  last_entry_query = """
+      SELECT entry_date FROM habit_entries
+      WHERE user_id = :user_id AND habit_id = :habit_id
+      ORDER BY entry_date DESC LIMIT 1
+  """
+  last_entry = await database.fetch_one(last_entry_query, {'user_id': user_id, 'habit_id': habit_id})
+  last_entry_date = last_entry['entry_date'].astimezone(central_tz) if last_entry else None
 
-async def determine_streak_update(last_entry_date, entry_date):
-    central_tz = pytz.timezone('America/Chicago')
-    last_entry_date = last_entry_date.astimezone(central_tz) if last_entry_date else None
-    entry_date = entry_date.astimezone(central_tz)
+  if last_entry_date is None:
+      return 1  # First entry for this habit
 
-    if last_entry_date is None or last_entry_date.date() != entry_date.date() - timedelta(days=1):
-        return 1
-    else:
-        return 1
+  date_difference = (entry_date.date() - last_entry_date.date()).days
+  if date_difference == 0:
+      return 1  # Same day entry, no streak increase
+  elif date_difference == 1:
+      return 1  # Consecutive day entry, increase streak by 1
+  else:
+      return 0  # Gap of more than one day, reset streak to zero
+
+
 
 async def add_habit(ctx, habit_title):
     if not isinstance(ctx.channel, discord.DMChannel):
