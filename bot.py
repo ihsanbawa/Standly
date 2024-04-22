@@ -89,8 +89,8 @@ async def log_standups_internal(guild_id, channel):
   goal_result = await fetch_query(goal_query, {'guild_id': guild_id})
 
   if not goal_result:
-      print("No goal data available for this guild.")
-      return
+    print("No goal data available for this guild.")
+    return
 
   goal = goal_result[0]['goal']
 
@@ -103,47 +103,46 @@ async def log_standups_internal(guild_id, channel):
   users = await fetch_query(user_query, {'guild_id': guild_id})
 
   if not users:
-      print("No user data available for this guild.")
-      return
+    print("No user data available for this guild.")
+    return
 
   successful_requests = 0
   errors = []
 
   async with aiohttp.ClientSession() as session:
-      for user in users:
-          beeminder_username = user['beeminder_username']
-          auth_token = user['beeminder_auth_token']
-          apiUrl = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/{goal}/datapoints.json"
-          postData = {
-              'auth_token': auth_token,
-              'timestamp': int(time.time()),
-              'value': 1,
-              'comment': 'logged via discord bot'
-          }
+    for user in users:
+      beeminder_username = user['beeminder_username']
+      auth_token = user['beeminder_auth_token']
+      apiUrl = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/{goal}/datapoints.json"
+      postData = {
+          'auth_token': auth_token,
+          'timestamp': int(time.time()),
+          'value': 1,
+          'comment': 'logged via discord bot'
+      }
 
-          if SANDBOX_MODE:
-              # Mock POST for demonstration
-              await channel.send(f"Mock POST to {apiUrl} with data: {postData}")
+      if SANDBOX_MODE:
+        # Mock POST for demonstration
+        await channel.send(f"Mock POST to {apiUrl} with data: {postData}")
+        successful_requests += 1
+      else:
+        try:
+          async with session.post(apiUrl, data=postData) as response:
+            if response.status == 200:
               successful_requests += 1
-          else:
-              try:
-                  async with session.post(apiUrl, data=postData) as response:
-                      if response.status == 200:
-                          successful_requests += 1
-                      else:
-                          error = await response.text()
-                          errors.append(
-                              f"Error for {beeminder_username}: {response.status} - {error}"
-                          )
-              except Exception as e:
-                  errors.append(f"Exception for {beeminder_username}: {str(e)}")
+            else:
+              error = await response.text()
+              errors.append(
+                  f"Error for {beeminder_username}: {response.status} - {error}"
+              )
+        except Exception as e:
+          errors.append(f"Exception for {beeminder_username}: {str(e)}")
 
   if successful_requests == len(users):
-      print("Standup logged successfully for all users.")
+    print("Standup logged successfully for all users.")
   else:
-      error_messages = '\n'.join(errors)
-      print(f"Errors occurred:\n{error_messages}")
-
+    error_messages = '\n'.join(errors)
+    print(f"Errors occurred:\n{error_messages}")
 
 
 async def determine_streak_update(last_entry_date, entry_date):
@@ -229,42 +228,42 @@ async def toggle_sandbox_mode(ctx):
 #     graph_url = f"https://www.beeminder.com/{beeminder_username}/standup.png?{timestamp}"
 #     await ctx.send(f"Graph for {beeminder_username}: {graph_url}")
 
+
 @bot.command(name='graphs', help='Display Beeminder graphs for all users')
 async def graphs(ctx):
-    timestamp = int(time.time())
-    guild_id = ctx.guild.id
+  timestamp = int(time.time())
+  guild_id = ctx.guild.id
 
-    # Fetch the goal for the guild
-    goal_query = """
+  # Fetch the goal for the guild
+  goal_query = """
         SELECT goal
         FROM guilds
         WHERE guild_id = :guild_id;
     """
-    goal_result = await fetch_query(goal_query, {'guild_id': guild_id})
+  goal_result = await fetch_query(goal_query, {'guild_id': guild_id})
 
-    if not goal_result:
-        await ctx.send("No goal data available for this guild.")
-        return
+  if not goal_result:
+    await ctx.send("No goal data available for this guild.")
+    return
 
-    goal = goal_result[0]['goal']
+  goal = goal_result[0]['goal']
 
-    # Fetch Beeminder usernames for users in the guild
-    user_query = """
+  # Fetch Beeminder usernames for users in the guild
+  user_query = """
         SELECT beeminder_username
         FROM users
         WHERE guild_id = :guild_id;
     """
-    users = await fetch_query(user_query, {'guild_id': guild_id})
+  users = await fetch_query(user_query, {'guild_id': guild_id})
 
-    if not users:
-        await ctx.send("No user data available.")
-        return
+  if not users:
+    await ctx.send("No user data available.")
+    return
 
-    for user in users:
-        beeminder_username = user['beeminder_username']
-        graph_url = f"https://www.beeminder.com/{beeminder_username}/{goal}.png?{timestamp}"
-        await ctx.send(f"Graph for {beeminder_username}: {graph_url}")
-
+  for user in users:
+    beeminder_username = user['beeminder_username']
+    graph_url = f"https://www.beeminder.com/{beeminder_username}/{goal}.png?{timestamp}"
+    await ctx.send(f"Graph for {beeminder_username}: {graph_url}")
 
 
 @bot.command(name='logstandups',
@@ -298,102 +297,98 @@ async def log_standups(ctx):
   await log_standups_internal(guild_id, channel)
   await ctx.send("Standups logged for all users.")
 
-
-@bot.command(name='viewgoals', help='View your goals')
-async def view_goals_command(ctx):
-  await view_goals(ctx)
-
-
-from goals import add_goal  # Make sure to import the add_goal function
-
-
-@bot.command(name='addgoal', help='Add a new goal')
-async def add_goal_command(ctx):
-  await add_goal(ctx)  # Call the add_goal function from goals.py
-
-
 @bot.command(name='removestandups',
-             help='Remove the most recent standup data point for all users')
+   help='Remove the most recent standup data point for all users')
 async def remove_standups(ctx):
   guild_id = ctx.guild.id
-
+  
+  # Fetch the goal for the guild
+  goal_query = """
+  SELECT goal
+  FROM guilds
+  WHERE guild_id = :guild_id;
+  """
+  goal_result = await fetch_query(goal_query, {'guild_id': guild_id})
+  
+  if not goal_result:
+    await ctx.send("No goal data available for this guild.")
+    return
+  
+  goal = goal_result[0]['goal']
+  
   # Fetch users and their Beeminder auth tokens for the guild
-  query = """
-        SELECT beeminder_username, beeminder_auth_token
-        FROM users
-        WHERE guild_id = :guild_id;
-        """
-  users = await fetch_query(query, {'guild_id': guild_id})
-
+  user_query = """
+  SELECT beeminder_username, beeminder_auth_token
+  FROM users
+  WHERE guild_id = :guild_id;
+  """
+  users = await fetch_query(user_query, {'guild_id': guild_id})
+  
   if not users:
     await ctx.send("No user data available for this guild.")
     return
-
+  
   successful_deletions = 0
   errors = []
-
+  
   async with aiohttp.ClientSession() as session:
     for user in users:
       beeminder_username = user['beeminder_username']
       auth_token = user['beeminder_auth_token']
-
+    
       # Fetch the most recent data point for the user
-      # This is a placeholder, you'll need to adjust based on how you can identify the data point to delete
       data_point_id = await fetch_most_recent_data_point_id(
-          beeminder_username, auth_token)
-
+          beeminder_username, auth_token, goal)
+    
       if not data_point_id:
-        errors.append(f"No data point found for {beeminder_username}")
-        continue
-
-      delete_url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints/{data_point_id}.json?auth_token={auth_token}"
-
+          errors.append(f"No data point found for {beeminder_username}")
+          continue
+    
+      delete_url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/{goal}/datapoints/{data_point_id}.json?auth_token={auth_token}"
+    
       try:
-        async with session.delete(delete_url) as response:
-          if response.status == 200:
-            successful_deletions += 1
-          else:
-            error = await response.text()
-            errors.append(
-                f"Error for {beeminder_username}: {response.status} - {error}")
+          async with session.delete(delete_url) as response:
+              if response.status == 200:
+                  successful_deletions += 1
+              else:
+                  error = await response.text()
+                  errors.append(
+                      f"Error for {beeminder_username}: {response.status} - {error}")
       except Exception as e:
-        errors.append(f"Exception for {beeminder_username}: {str(e)}")
-
+          errors.append(f"Exception for {beeminder_username}: {str(e)}")
+    
   if successful_deletions == len(users):
     await ctx.send(
-        "Most recent standup data point removed successfully for all users.")
+      "Most recent data point removed successfully for all users.")
   else:
     error_messages = '\n'.join(errors)
     await ctx.send(f"Errors occurred during deletion:\n{error_messages}")
-
-
-async def fetch_most_recent_data_point_id(beeminder_username, auth_token):
-  # Beeminder API URL to fetch all data points for a user's goal
-  url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/standup/datapoints.json?auth_token={auth_token}"
-
+  
+async def fetch_most_recent_data_point_id(beeminder_username, auth_token, goal):
+  url = f"https://www.beeminder.com/api/v1/users/{beeminder_username}/goals/{goal}/datapoints.json?auth_token={auth_token}"
+  
   async with aiohttp.ClientSession() as session:
     try:
       async with session.get(url) as response:
-        if response.status == 200:
-          data_points = await response.json()
-
-          if not data_points:
-            print(f"No data points found for {beeminder_username}")
-            return None
-
-          # Sort the data points by the 'updated_at' or 'timestamp' field to find the most recent one
-          # Assuming that the data points are returned as a list of dictionaries
-          most_recent_data_point = max(data_points,
-                                       key=lambda x: x['timestamp'])
-
-          # Return the ID of the most recent data point
-          return most_recent_data_point['id']
-        else:
-          error = await response.text()
-          print(
-              f"Error fetching data points for {beeminder_username}: {response.status} - {error}"
-          )
-          return None
+          if response.status == 200:
+              data_points = await response.json()
+    
+              if not data_points:
+                  print(f"No data points found for {beeminder_username}")
+                  return None
+    
+              # Sort the data points by the 'updated_at' or 'timestamp' field to find the most recent one
+              most_recent_data_point = max(data_points,
+                                           key=lambda x: x['timestamp'])
+    
+              # Return the ID of the most recent data point
+              return most_recent_data_point['id']
+          else:
+              error = await response.text()
+              print(
+                  f"Error fetching data points for {beeminder_username}: {response.status} - {error}"
+              )
+              return None
     except Exception as e:
       print(
           f"Exception occurred while fetching data points for {beeminder_username}: {str(e)}"
@@ -603,8 +598,6 @@ async def fetch_subscribed_users():
   return await fetch_query(query)
 
 
-
-
 # @bot.command(name='triggerupdates', help='Manually trigger daily updates for testing.')
 # async def trigger_updates(ctx):
 #     await ctx.send("Starting manual trigger of daily updates...")
@@ -614,31 +607,32 @@ async def fetch_subscribed_users():
 #     await ctx.send("Manual trigger of daily updates completed.")
 
 
-
 @bot.command(name='setchannel',
-   help='Set a channel to be monitored by the bot')
+             help='Set a channel to be monitored by the bot')
 async def set_channel(ctx, *, channel_name: str):
   guild_id = str(ctx.guild.id)
-  voice_channel = discord.utils.get(ctx.guild.voice_channels, name=channel_name)
-  
+  voice_channel = discord.utils.get(ctx.guild.voice_channels,
+                                    name=channel_name)
+
   if voice_channel:
-  # Check if the guild is already in the database
+    # Check if the guild is already in the database
     check_guild_query = """
       SELECT guild_id FROM guilds WHERE guild_id = :guild_id;
     """
     guild_exists = await fetch_query(check_guild_query, {"guild_id": guild_id})
-  
+
     # If the guild is not in the database, insert it
     if not guild_exists:
       insert_guild_query = """
           INSERT INTO guilds (guild_id, monitored_channel_id, monitored_channel_name)
           VALUES (:guild_id, :monitored_channel_id, :monitored_channel_name);
       """
-      await execute_query(insert_guild_query, {
-          "guild_id": int(guild_id),
-          "monitored_channel_id": voice_channel.id,
-          "monitored_channel_name": channel_name
-      })
+      await execute_query(
+          insert_guild_query, {
+              "guild_id": int(guild_id),
+              "monitored_channel_id": voice_channel.id,
+              "monitored_channel_name": channel_name
+          })
     else:
       # Update the monitored channel details in the database
       update_guild_query = """
@@ -646,59 +640,64 @@ async def set_channel(ctx, *, channel_name: str):
           SET monitored_channel_id = :monitored_channel_id, monitored_channel_name = :monitored_channel_name
           WHERE guild_id = :guild_id;
       """
-      await execute_query(update_guild_query, {
-          "guild_id": int(guild_id),
-          "monitored_channel_id": voice_channel.id,
-          "monitored_channel_name": channel_name
-      })
-    
+      await execute_query(
+          update_guild_query, {
+              "guild_id": int(guild_id),
+              "monitored_channel_id": voice_channel.id,
+              "monitored_channel_name": channel_name
+          })
+
     await ctx.send(f"Voice channel '{channel_name}' is now being monitored.")
   else:
     await ctx.send(f"No voice channel named '{channel_name}' found.")
-  
+
+
 @bot.command(
-  name='adduser',
-  help='Add a user with their authToken. Usage: !adduser [username] [authToken]')
+    name='adduser',
+    help=
+    'Add a user with their authToken. Usage: !adduser [username] [authToken]')
 async def add_user(ctx, username: str, authToken: str):
   if not username or not authToken:
-      await ctx.send("Please provide both a username and an authToken.")
-      return
+    await ctx.send("Please provide both a username and an authToken.")
+    return
 
   guild_id = ctx.guild.id
   # Check if the user already exists in the database
   check_user_query = """
       SELECT beeminder_username FROM users WHERE guild_id = :guild_id AND beeminder_username = :username;
   """
-  user_exists = await fetch_query(check_user_query, {"guild_id": guild_id, "username": username})
+  user_exists = await fetch_query(check_user_query, {
+      "guild_id": guild_id,
+      "username": username
+  })
 
   if user_exists:
-      # Update the existing user's authToken
-      update_user_query = """
+    # Update the existing user's authToken
+    update_user_query = """
           UPDATE users
           SET beeminder_auth_token = :authToken
           WHERE guild_id = :guild_id AND beeminder_username = :username;
       """
-      await execute_query(update_user_query, {
-          "guild_id": guild_id,
-          "username": username,
-          "authToken": authToken
-      })
-      operation = "updated"
+    await execute_query(update_user_query, {
+        "guild_id": guild_id,
+        "username": username,
+        "authToken": authToken
+    })
+    operation = "updated"
   else:
-      # Insert the new user into the database
-      insert_user_query = """
+    # Insert the new user into the database
+    insert_user_query = """
           INSERT INTO users (guild_id, beeminder_username, beeminder_auth_token)
           VALUES (:guild_id, :username, :authToken);
       """
-      await execute_query(insert_user_query, {
-          "guild_id": guild_id,
-          "username": username,
-          "authToken": authToken
-      })
-      operation = "added"
+    await execute_query(insert_user_query, {
+        "guild_id": guild_id,
+        "username": username,
+        "authToken": authToken
+    })
+    operation = "added"
 
   await ctx.send(f"User {username} {operation} successfully.")
-
 
 
 # # Command to delete a user
@@ -713,7 +712,6 @@ async def add_user(ctx, username: str, authToken: str):
 #     await ctx.send(f"User {username} has been removed.")
 #   else:
 #     await ctx.send(f"User {username} not found in stored data.")
-
 
 # # Command to list all users stored in the bot
 # @bot.command(name='listusers', help='List all users stored in the bot')
@@ -828,12 +826,13 @@ async def display_habits(ctx):
   # Send the message
   await ctx.send(message)
 
+
 @bot.command(name='discordid', help='Get the Discord ID of a mentioned user.')
 async def discord_id(ctx, user: discord.Member = None):
-    if user is None:
-        await ctx.send("Please mention a user to get their Discord ID.")
-    else:
-        await ctx.send(f"The Discord ID of {user.mention} is `{user.id}`.")
+  if user is None:
+    await ctx.send("Please mention a user to get their Discord ID.")
+  else:
+    await ctx.send(f"The Discord ID of {user.mention} is `{user.id}`.")
 
 
 def run():
