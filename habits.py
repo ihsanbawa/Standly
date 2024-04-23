@@ -170,8 +170,6 @@ async def delete_habit(ctx, habit_title):
         print(f"Error deleting habit: {e}")
         await ctx.send("Failed to delete the habit. Please try again later.")
 
-from datetime import datetime, timedelta
-
 async def calculate_7_day_momentum(user_id, habit_id, database):
     # Define the 7-day period
     end_date = datetime.now().date()  # Today's date
