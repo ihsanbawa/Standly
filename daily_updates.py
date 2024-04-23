@@ -2,7 +2,7 @@
 import aiohttp
 import discord
 from discord.ext import commands
-import datetime
+from datetime import datetime, timedelta
 import pytz  # Ensure pytz is installed
 
 
@@ -95,9 +95,9 @@ async def fetch_completed_tasks_from_todoist(todoist_token):
   # Time zone aware datetime for Central Time
   central_tz = pytz.timezone('America/Chicago')
   # Get the current time in Central Time
-  now_central = datetime.datetime.now(central_tz)
+  now_central = datetime.now(central_tz)
   # Calculate 'yesterday' in Central Time
-  yesterday_central = now_central - datetime.timedelta(days=1)
+  yesterday_central = now_central - timedelta(days=1)
   since_date = yesterday_central.strftime(
       '%Y-%m-%dT00:00:00')  # Start of yesterday in Central Time
 

@@ -1,7 +1,7 @@
 import discord
 from discord.ui import Button, View, Modal, TextInput, Select
 import aiohttp
-import datetime
+from datetime import datetime
 
 MICROSERVICE_BASE_URL = "http://zarathu-env.eba-5kgszm3t.us-east-2.elasticbeanstalk.com"
 
@@ -63,7 +63,7 @@ class GoalModal(Modal):
         self.add_item(TextInput(label="Status", placeholder="e.g., In Progress, Completed", max_length=100))
 
         # Dynamic year calculation
-        current_year = datetime.datetime.now().year
+        current_year = datetime.now().year
 
         # Goal Type Select Menu
         self.goal_type_select = Select(placeholder="Choose the goal type")

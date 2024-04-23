@@ -11,7 +11,7 @@ from app import app
 from wuphf import handle_wuphf
 from replit import db
 from database import database, fetch_query, execute_query
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pytz
 import asyncio
 from goals import view_goals, add_goal
@@ -521,8 +521,8 @@ async def info(ctx):
 
 async def fetch_habit_completion_days(user_id, habit_id, database):
   # Calculate the date range for the last 7 days
-  today = datetime.date.today()
-  seven_days_ago = today - datetime.timedelta(
+  today = date.today()
+  seven_days_ago = today - timedelta(
       days=6)  # Include today in the count
 
   completion_query = """
