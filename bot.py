@@ -11,7 +11,7 @@ from app import app
 from wuphf import handle_wuphf
 from replit import db
 from database import database, fetch_query, execute_query
-import datetime
+from datetime import datetime, timedelta
 import pytz
 import asyncio
 from goals import view_goals, add_goal
@@ -438,7 +438,7 @@ async def on_voice_state_update(member, before, after):
                                                 {"guild_id": guild_id})
           user_count = user_count_result[0][0] if user_count_result else 0
           print("dates", today_date, last_log_date)
-          if len(after.channel.members) == user_count and (today_date
+          if len(after.channel.members) == 1 and (today_date
                                                            != last_log_date):
             print("Logging standup...")
             text_channel = discord.utils.get(after.channel.guild.text_channels,
@@ -539,7 +539,7 @@ async def fetch_habit_completion_days(user_id, habit_id, database):
       })
   return result['completed_days'] if result else 0
 
-
+#original dailyupdate2
 @bot.command(name='t', help='Send your daily update')
 async def daily_update(ctx):
     if not isinstance(ctx.channel, discord.DMChannel):
