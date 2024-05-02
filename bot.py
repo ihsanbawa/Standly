@@ -416,8 +416,13 @@ async def on_voice_state_update(member, before, after):
                                                 {"guild_id": guild_id})
           user_count = user_count_result[0][0] if user_count_result else 0
           print("dates", today_date, last_log_date)
-          if len(after.channel.members) == 1 and (today_date
-                                                           == last_log_date):
+          # Adjust condition based on sandbox mode
+          if SANDBOX_MODE:
+              condition = (today_date == last_log_date)
+          else:
+              condition = (len(after.channel.members) == 1 and today_date != last_log_date)
+
+          if condition:
             print("Logging standup...")
             text_channel = discord.utils.get(after.channel.guild.text_channels,
                                              name=monitored_channel_name)
