@@ -417,7 +417,7 @@ async def on_voice_state_update(member, before, after):
           user_count = user_count_result[0][0] if user_count_result else 0
           print("dates", today_date, last_log_date)
           if len(after.channel.members) == 1 and (today_date
-                                                           != last_log_date):
+                                                           == last_log_date):
             print("Logging standup...")
             text_channel = discord.utils.get(after.channel.guild.text_channels,
                                              name=monitored_channel_name)
@@ -435,10 +435,15 @@ async def on_voice_state_update(member, before, after):
                   f"Standup logged for users in the channel on {today}")
               print("Standup log message sent.")
               # Trigger daily updates for each user in the voice channel
+              monitored_channel = discord.utils.get(member.guild.text_channels, name=monitored_channel_name)
               for user in after.channel.members:
                 if not user.bot:  # Skip bots
-                    print(f"Triggering daily update for {user.display_name}")
-                    await direct_daily_update(user, text_channel)
+                    print(f"Attempting to trigger daily update for {member.display_name}")
+                    try:
+                        await direct_daily_update(member, monitored_channel)
+                        print(f"Daily update triggered for {member.display_name}")
+                    except Exception as e:
+                        print(f"Failed to trigger daily update for {member.display_name}: {e}")
 
             
             else:
@@ -524,26 +529,71 @@ async def fetch_habit_completion_days(user_id, habit_id, database):
       })
   return result['completed_days'] if result else 0
 
-#original dailyupdate2
+async def get_task_summary(user_id, database):
+  todoist_token = await fetch_todoist_token(user_id, database)
+  if not todoist_token:
+      return None, "Todoist API token not found. Please set it up."
+
+  completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
+  today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+
+  completed_tasks_str = "\n".join([f"✅ {task['content']}" for task in completed_tasks]) if completed_tasks else "No tasks completed yesterday."
+  today_tasks_str = "\n".join([f"🕒 {task[0]}" for task in today_tasks]) if today_tasks else "You're all clear for today!"
+
+  return completed_tasks_str, today_tasks_str
+
+async def create_habit_embed(user_id, database):
+  habit_embed = Embed(title="💪 Habit Tracker", color=0x00ff00)
+  habits = await fetch_user_habits(user_id)
+  if habits:
+      for habit in habits:
+          completed_days = await fetch_habit_completion_days(str(user_id), habit['id'], database)
+          habit_embed.add_field(name=f"{habit['title']}",
+                                value=f"Streak: {habit['streak']} | Overall: {habit['overall_counter']} | Last 7 Days: {completed_days}/7",
+                                inline=False)
+  else:
+      habit_embed.description = "No habits recorded."
+  
+  return habit_embed
+
+def format_task_message(completed_tasks_str, today_tasks_str):
+  base_message = "🎯 **Completed Tasks Yesterday:**\n"
+  additional_message = "\n🚀 **Today's Tasks:**\n"
+  available_length = 2000 - len(base_message) - len(additional_message) - 100  # 100 characters reserved for potential truncation message
+  
+  if len(completed_tasks_str) + len(today_tasks_str) > available_length:
+      # Calculate how much space we can use for each part
+      half_length = available_length // 2
+      truncated_completed_tasks = (completed_tasks_str[:half_length] + '...') if len(completed_tasks_str) > half_length else completed_tasks_str
+      truncated_today_tasks = (today_tasks_str[:half_length] + '...') if len(today_tasks_str) > half_length else today_tasks_str
+  
+      message = f"{base_message}{truncated_completed_tasks}\n{additional_message}{truncated_today_tasks}\n*Not all tasks are displayed due to message length limits.*"
+  else:
+      message = f"{base_message}{completed_tasks_str}\n{additional_message}{today_tasks_str}"
+  
+  return message
+
+
 @bot.command(name='t', help='Send your daily update')
 async def daily_update(ctx):
     if not isinstance(ctx.channel, discord.DMChannel):
         await ctx.send("This command can only be used in DMs.")
         return
 
-    user_info = await fetch_user_info(ctx.author.id, database)
+    user_id = ctx.author.id  # Get the user ID of the person sending the command
+    user_info = await fetch_user_info(user_id, database)
     if not user_info:
         await ctx.send("Could not find your user information in the database.")
         return
 
+    # Assuming you have a method to fetch or create a thread for the user
     guild_id = user_info['guild_id']
     guild = bot.get_guild(guild_id)
     if not guild:
         await ctx.send("Could not find the guild associated with your user information.")
         return
 
-    guild_info_result = await fetch_query(
-        """
+    guild_info_result = await fetch_query("""
         SELECT monitored_channel_name
         FROM guilds
         WHERE guild_id = :guild_id;
@@ -559,53 +609,105 @@ async def daily_update(ctx):
         return
 
     thread = await get_or_create_thread(channel, ctx.author.display_name)
-    todoist_token = await fetch_todoist_token(ctx.author.id, database)
 
-    if todoist_token:
-        completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
-        today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+    completed_tasks_str, today_tasks_str = await get_task_summary(user_id, database)
+    if not completed_tasks_str:  # This will be None if the token wasn't found
+        await thread.send(today_tasks_str)  # This contains the error message
+        return
 
-        task_message = f"🌟 **Daily Update for {ctx.author.name}** 🌟\n\n"
+    # Format the task message using the helper function
+    task_message = f"🌟 **Daily Update for {ctx.author.name}** 🌟\n\n"
+    task_message += format_task_message(completed_tasks_str, today_tasks_str)
+    await thread.send(task_message)  # Send the task summary in the thread
 
-        # Formatting completed tasks
-        if completed_tasks:
-            completed_tasks_str = "\n".join([f"✅ {task['content']}" for task in completed_tasks])
-        else:
-            completed_tasks_str = "No tasks completed yesterday."
+    # Create and send the habit tracker embed
+    habit_embed = await create_habit_embed(user_id, database)
+    await thread.send(embed=habit_embed)
 
-        # Formatting today's tasks
-        if today_tasks:
-            today_tasks_str = "\n".join([f"🕒 {task[0]}" for task in today_tasks])
-        else:
-            today_tasks_str = "You're all clear for today!"
 
-        # Checking if the message exceeds the limit
-        if len(task_message + completed_tasks_str + today_tasks_str) > 2000:
-            task_message += f"🎯 **Completed Tasks Yesterday:**\n{completed_tasks_str[:1000]}...\n"
-            task_message += f"\n🚀 **Today's Tasks (partially shown):**\n{today_tasks_str[:500]}...\n"
-            task_message += "\n*Not all tasks are displayed due to message length limits.*"
-        else:
-            task_message += f"🎯 **Completed Tasks Yesterday:**\n{completed_tasks_str}\n"
-            task_message += f"\n🚀 **Today's Tasks:**\n{today_tasks_str}"
 
-        await thread.send(task_message)
+#original dailyupdate2
+# @bot.command(name='t', help='Send your daily update')
+# async def daily_update(ctx):
+#     if not isinstance(ctx.channel, discord.DMChannel):
+#         await ctx.send("This command can only be used in DMs.")
+#         return
 
-    else:
-        await thread.send("\nTodoist API token not found. Please set it up.")
+#     user_info = await fetch_user_info(ctx.author.id, database)
+#     if not user_info:
+#         await ctx.send("Could not find your user information in the database.")
+#         return
 
-    # Sending the habit tracker as an embed
-    habit_embed = Embed(title="💪 Habit Tracker", color=0x00ff00)
-    habits = await fetch_user_habits(ctx.author.id)
-    if habits:
-        for habit in habits:
-            completed_days = await fetch_habit_completion_days(str(ctx.author.id), habit['id'], database)
-            habit_embed.add_field(name=f"{habit['title']}",
-                            value=f"Streak: {habit['streak']} | Overall: {habit['overall_counter']} | Last 7 Days: {completed_days}/7",
-                            inline=False)
-    else:
-        habit_embed.description = "You have no habits recorded."
+#     guild_id = user_info['guild_id']
+#     guild = bot.get_guild(guild_id)
+#     if not guild:
+#         await ctx.send("Could not find the guild associated with your user information.")
+#         return
 
-    await thread.send(embed=habit_embed)  # Send the habit summary as an embed
+#     guild_info_result = await fetch_query(
+#         """
+#         SELECT monitored_channel_name
+#         FROM guilds
+#         WHERE guild_id = :guild_id;
+#         """, {"guild_id": guild_id})
+#     if not guild_info_result or len(guild_info_result) == 0:
+#         await ctx.send("Monitored channel not set for the associated guild.")
+#         return
+
+#     monitored_channel_name = guild_info_result[0]['monitored_channel_name']
+#     channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
+#     if not channel:
+#         await ctx.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
+#         return
+
+#     thread = await get_or_create_thread(channel, ctx.author.display_name)
+#     todoist_token = await fetch_todoist_token(ctx.author.id, database)
+
+#     if todoist_token:
+#         completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
+#         today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+
+#         task_message = f"🌟 **Daily Update for {ctx.author.name}** 🌟\n\n"
+
+#         # Formatting completed tasks
+#         if completed_tasks:
+#             completed_tasks_str = "\n".join([f"✅ {task['content']}" for task in completed_tasks])
+#         else:
+#             completed_tasks_str = "No tasks completed yesterday."
+
+#         # Formatting today's tasks
+#         if today_tasks:
+#             today_tasks_str = "\n".join([f"🕒 {task[0]}" for task in today_tasks])
+#         else:
+#             today_tasks_str = "You're all clear for today!"
+
+#         # Checking if the message exceeds the limit
+#         if len(task_message + completed_tasks_str + today_tasks_str) > 2000:
+#             task_message += f"🎯 **Completed Tasks Yesterday:**\n{completed_tasks_str[:1000]}...\n"
+#             task_message += f"\n🚀 **Today's Tasks (partially shown):**\n{today_tasks_str[:500]}...\n"
+#             task_message += "\n*Not all tasks are displayed due to message length limits.*"
+#         else:
+#             task_message += f"🎯 **Completed Tasks Yesterday:**\n{completed_tasks_str}\n"
+#             task_message += f"\n🚀 **Today's Tasks:**\n{today_tasks_str}"
+
+#         await thread.send(task_message)
+
+#     else:
+#         await thread.send("\nTodoist API token not found. Please set it up.")
+
+#     # Sending the habit tracker as an embed
+#     habit_embed = Embed(title="💪 Habit Tracker", color=0x00ff00)
+#     habits = await fetch_user_habits(ctx.author.id)
+#     if habits:
+#         for habit in habits:
+#             completed_days = await fetch_habit_completion_days(str(ctx.author.id), habit['id'], database)
+#             habit_embed.add_field(name=f"{habit['title']}",
+#                             value=f"Streak: {habit['streak']} | Overall: {habit['overall_counter']} | Last 7 Days: {completed_days}/7",
+#                             inline=False)
+#     else:
+#         habit_embed.description = "You have no habits recorded."
+
+#     await thread.send(embed=habit_embed)  # Send the habit summary as an embed
 
 
   # # Prepare the habit tracker message with adequate spacing
@@ -682,58 +784,81 @@ async def set_channel(ctx, *, channel_name: str):
   else:
     await ctx.send(f"No voice channel named '{channel_name}' found.")
 
-@bot.command(name='daily', help='Send the daily update for a specified user in the current channel')
-async def direct_daily_update(user, channel):
-  user_info = await fetch_user_info(user.id, database)
+
+
+async def direct_daily_update(member: discord.Member, channel: discord.TextChannel):
+  print('Running daily command')
+  user_info = await fetch_user_info(member.id, database)
   if not user_info:
       await channel.send("Could not find user information in the database.")
       return
-  
+
   guild_id = user_info['guild_id']
   guild = bot.get_guild(guild_id)
   if not guild:
       await channel.send("Could not find the guild associated with the user information.")
       return
-  
-  guild_info_result = await fetch_query("""
-      SELECT monitored_channel_name
-      FROM guilds
-      WHERE guild_id = :guild_id;
-      """, {"guild_id": guild_id})
-  if not guild_info_result or len(guild_info_result) == 0:
-      await channel.send("Monitored channel not set for the associated guild.")
+
+  thread = await get_or_create_thread(channel, member.display_name)
+
+  completed_tasks_str, today_tasks_str = await get_task_summary(member.id, database)
+  if not completed_tasks_str:  # This will be None if the token wasn't found
+      await thread.send(today_tasks_str)  # This contains the error message
       return
-  
-  monitored_channel_name = guild_info_result[0]['monitored_channel_name']
-  monitored_channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
-  if not monitored_channel:
-      await channel.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
-      return
-  
-  thread = await get_or_create_thread(monitored_channel, user_info['discord_username'])
-  todoist_token = await fetch_todoist_token(user.id, database)
-  
-  if todoist_token:
-      task_message = f"🌟 **Daily Update for {user_info['discord_username']}** 🌟\n\n"
-      completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
-      task_message += "🎯 **Completed Tasks Yesterday:**\n"
-      if completed_tasks:
-          for task in completed_tasks:
-              task_message += f"✅ {task['content']}\n"
-      else:
-          task_message += "No tasks completed yesterday.\n"
-  
-      today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
-      task_message += "\n🚀 **Today's Tasks:**\n"
-      if today_tasks:
-          for task in today_tasks:
-              task_message += f"🕒 {task[0]}\n"
-      else:
-          task_message += "You're all clear for today!\n"
-  else:
-      task_message = "\nTodoist API token not found. Please set it up.\n"
-  
+
+  task_message = f"🌟 **Daily Update for {member.display_name}** 🌟\n\n"
+  task_message += format_task_message(completed_tasks_str, today_tasks_str)
   await thread.send(task_message)
+
+  habit_embed = await create_habit_embed(member.id, database)
+  await thread.send(embed=habit_embed)
+
+
+
+# @bot.command(name='daily', help='Send the daily update for a specified user in the current channel')
+# async def direct_daily_update(ctx, user: discord.Member):
+#     user_info = await fetch_user_info(user.id, database)
+#     print('Running daily command')
+#     if not user_info:
+#         await ctx.send("Could not find user information in the database.")
+#         return
+
+#     guild_id = user_info['guild_id']
+#     guild = bot.get_guild(guild_id)
+#     if not guild:
+#         await ctx.send("Could not find the guild associated with the user information.")
+#         return
+
+#     guild_info_result = await fetch_query("""
+#         SELECT monitored_channel_name
+#         FROM guilds
+#         WHERE guild_id = :guild_id;
+#         """, {"guild_id": guild_id})
+#     if not guild_info_result or len(guild_info_result) == 0:
+#         await ctx.send("Monitored channel not set for the associated guild.")
+#         return
+
+#     monitored_channel_name = guild_info_result[0]['monitored_channel_name']
+#     monitored_channel = discord.utils.get(guild.text_channels, name=monitored_channel_name)
+#     if not monitored_channel:
+#         await ctx.send(f"Monitored text channel '{monitored_channel_name}' not found in the associated guild.")
+#         return
+
+#     thread = await get_or_create_thread(monitored_channel, user.display_name)
+
+#     completed_tasks_str, today_tasks_str = await get_task_summary(user.id, database)
+#     if not completed_tasks_str:  # This will be None if the token wasn't found
+#         await thread.send(today_tasks_str)  # This contains the error message
+#         return
+
+#     task_message = f"🌟 **Daily Update for {user.display_name}** 🌟\n\n"
+#     task_message += format_task_message(completed_tasks_str, today_tasks_str)
+#     await thread.send(task_message)
+
+#     habit_embed = await create_habit_embed(user.id, database)
+#     await thread.send(embed=habit_embed)
+
+
 
 
 
