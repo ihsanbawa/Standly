@@ -953,58 +953,50 @@ async def delete_habit_command(ctx, *, habit_title):
 
 
 #original dailyupdate command
-@bot.command(name='d', help='Daily Update w/ Habits')
+@bot.command(name='h', help='Daily Update w/ Habits in DM')
 async def record_habit(ctx):
-  if not isinstance(ctx.channel, discord.DMChannel):
-    await ctx.send("Please use this command in a Direct Message with me.")
-    return
+    if not isinstance(ctx.channel, discord.DMChannel):
+        await ctx.send("Please use this command in a Direct Message with me.")
+        return
 
-  user_id = str(ctx.author.id)
-  user_habits = await fetch_user_habits(user_id)
+    user_id = str(ctx.author.id)
+    user_habits = await fetch_user_habits(user_id)
 
-  if not user_habits:
-    await ctx.send("You don't have any habits set up yet.")
-    return
+    if not user_habits:
+        await ctx.send("You don't have any habits set up yet.")
+        return
 
-  view = View()
+    view = View()
 
-  for habit in user_habits:
-    habit_id, habit_title = habit['id'], habit['title']
+    # Function to create button callbacks
+    def make_button_callback(habit_id, habit_title, user_id):
+        async def button_callback(interaction):
+            try:
+                await record_habit_entry(user_id, habit_id)
+                await interaction.response.send_message(f"'{habit_title}' recorded!", ephemeral=True)
+            except Exception as e:
+                print(f"Error recording habit entry: {e}")
+                await interaction.response.send_message("Failed to record habit entry. Please try again later.", ephemeral=True)
+        return button_callback
 
-    button = Button(label=habit_title, style=discord.ButtonStyle.primary)
+    for habit in user_habits:
+        button = Button(label=habit['title'], style=discord.ButtonStyle.primary)
+        button.callback = make_button_callback(habit['id'], habit['title'], user_id)
+        view.add_item(button)
 
-    async def button_callback(interaction,
-                              habit_id=habit_id,
-                              habit_title=habit_title,
-                              user_id=user_id):
-      try:
-        await record_habit_entry(user_id, habit_id)
-        await interaction.response.send_message(f"'{habit_title}' recorded!")
-      except Exception as e:
-        print(f"Error recording habit entry: {e}")
-        await interaction.response.send_message(
-            "Failed to record habit entry. Please try again later.")
+    finish_button = Button(label="Finish", style=discord.ButtonStyle.green)
+    async def finish_callback(interaction):
+        # Create an embed with the user's habits
+        habit_embed = await create_habit_embed(user_id, database)
+        await interaction.response.send_message("Here's your updated habit summary:", embed=habit_embed, ephemeral=True)
 
-    button.callback = button_callback
-    view.add_item(button)
+    finish_button.callback = finish_callback
+    view.add_item(finish_button)
 
-  # Finish button
-  finish_button = Button(label="Finish", style=discord.ButtonStyle.green)
+    await ctx.send("Select a habit to record or click 'Finish' when done:", view=view)
 
-  async def finish_callback(interaction):
-    # Inform the user that their habits recording session is concluded
-    await interaction.response.send_message(
-        "Finishing habit recording. Processing your daily update...",
-        ephemeral=True)
 
-    # Directly call the daily_update function here
-    await daily_update(ctx)
 
-  finish_button.callback = finish_callback
-  view.add_item(finish_button)
-
-  await ctx.send("Select a habit to record or click 'Finish' when done:",
-                 view=view)
 
 
 @bot.command(name='displayhabits', help='Display completed habits summary')
