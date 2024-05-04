@@ -420,7 +420,7 @@ async def on_voice_state_update(member, before, after):
           if SANDBOX_MODE:
               condition = (today_date == last_log_date)
           else:
-              condition = (len(after.channel.members) == 1 and today_date != last_log_date)
+              condition = (len(after.channel.members) == user_count and today_date != last_log_date)
 
           if condition:
             print("Logging standup...")
