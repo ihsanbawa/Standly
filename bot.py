@@ -383,7 +383,7 @@ async def on_voice_state_update(member, before, after):
 
   if before.channel != after.channel:
     print(f"Member {member.name} changed channels.")
-
+    guild = after.channel.guild if after.channel else before.channel.guild
     if after.channel:
       print(f"Member {member.name} joined channel: {after.channel.name}")
 
@@ -412,6 +412,19 @@ async def on_voice_state_update(member, before, after):
           today_date = datetime.strptime(today, '%Y-%m-%d').date()
           last_log_date = guild_info['last_log_date']
           user_count_query = "SELECT COUNT(*) FROM users WHERE guild_id = :guild_id;"
+          user_discordid_query = "SELECT discord_id FROM users WHERE guild_id = :guild_id;"
+          active_users = await fetch_query(user_discordid_query, {"guild_id": guild_id})
+          active_user_ids = {user['discord_id'] for user in active_users}
+          active_members = []
+
+          # Fetch Member objects for each active user ID
+          for user_id in active_user_ids:
+            try:
+                member = await guild.fetch_member(user_id)
+                if member:
+                    active_members.append(member)
+            except Exception as e:
+                print(f"Error fetching member with ID {user_id}: {e}")
           user_count_result = await fetch_query(user_count_query,
                                                 {"guild_id": guild_id})
           user_count = user_count_result[0][0] if user_count_result else 0
@@ -441,16 +454,12 @@ async def on_voice_state_update(member, before, after):
               print("Standup log message sent.")
               # Trigger daily updates for each user in the voice channel
               monitored_channel = discord.utils.get(member.guild.text_channels, name=monitored_channel_name)
-              for user in after.channel.members:
-                if not user.bot:  # Skip bots
-                    print(f"Attempting to trigger daily update for {member.display_name}")
-                    try:
-                        await direct_daily_update(member, monitored_channel)
-                        print(f"Daily update triggered for {member.display_name}")
-                    except Exception as e:
-                        print(f"Failed to trigger daily update for {member.display_name}: {e}")
-
-            
+              for member in active_members:
+                try:
+                  await direct_daily_update(member, monitored_channel)
+                  print(f"Daily update triggered for {member.display_name}")
+                except Exception as e:
+                  print(f"Failed to trigger daily update for {member.display_name}: {e}")
             else:
               print(
                   f"Monitored text channel '{monitored_channel_name}' not found."
