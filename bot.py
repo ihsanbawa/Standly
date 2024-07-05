@@ -1204,7 +1204,7 @@ async def undo_karma(ctx):
     # Remove the entry from the dictionary
     del last_karma_updates[guild_id]
 
-@bot.command(name='karmascore', help='Display karma scores for all users')
+@bot.command(name='karmascores', help='Display karma scores for all users')
 async def karmascore(ctx):
     guild = ctx.guild
 
