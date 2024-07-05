@@ -1051,6 +1051,199 @@ async def discord_id(ctx, user: discord.Member = None):
   else:
     await ctx.send(f"The Discord ID of {user.mention} is `{user.id}`.")
 
+async def record_attendance(guild, present_user_ids):
+  # Fetch all users in the guild
+  query = """
+  SELECT discord_id, attendance, missed_standup FROM users WHERE guild_id = :guild_id
+  """
+  params = {'guild_id': guild.id}
+  all_users = await fetch_query(query, params)
+
+  if not all_users:
+      return "No users found in the database for this guild."
+
+  present_users = []
+  absent_users = []
+
+  for user in all_users:
+      if user['discord_id'] in present_user_ids:
+          present_users.append(user['discord_id'])
+      else:
+          absent_users.append(user['discord_id'])
+
+  # Update attendance for present users
+  if present_users:
+      update_present_query = """
+      UPDATE users
+      SET attendance = attendance + 1
+      WHERE discord_id = ANY(:present_user_ids)
+      """
+      await execute_query(update_present_query, {'present_user_ids': present_users})
+
+  # Update missed_standup for absent users
+  if absent_users:
+      update_absent_query = """
+      UPDATE users
+      SET missed_standup = missed_standup + 1
+      WHERE discord_id = ANY(:absent_user_ids)
+      """
+      await execute_query(update_absent_query, {'absent_user_ids': absent_users})
+
+  return all_users, present_users, absent_users
+
+last_karma_updates = {}
+
+@bot.command(name='karma', help='Record attendance and missed standups, and display karma scores with random insults for absentees')
+async def karma(ctx):
+    guild = ctx.guild
+
+    # Fetch the monitored channel information from the database
+    guild_query = """
+        SELECT monitored_channel_name
+        FROM guilds
+        WHERE guild_id = :guild_id;
+    """
+    guild_info_result = await fetch_query(guild_query, {"guild_id": guild.id})
+
+    if not guild_info_result:
+        await ctx.send("Monitored channel not set for this guild.")
+        return
+
+    monitored_channel_name = guild_info_result[0]['monitored_channel_name']
+    monitored_channel = discord.utils.get(guild.voice_channels, name=monitored_channel_name)
+
+    if not monitored_channel:
+        await ctx.send(f"Monitored voice channel '{monitored_channel_name}' not found.")
+        return
+
+    present_user_ids = {member.id for member in monitored_channel.members}
+
+    # Record attendance
+    all_users_result = await record_attendance(guild, present_user_ids)
+    if isinstance(all_users_result, str):
+        await ctx.send(all_users_result)
+        return
+
+    all_users, present_users, absent_users = all_users_result
+
+    # Store the changes in last_karma_updates
+    last_karma_updates[guild.id] = {'present_users': present_users, 'absent_users': absent_users}
+
+    # Prepare the karma output
+    karma_output = "📊 **Karma Scores** 📊\n\n"
+    insult_tasks = []
+
+    for user in all_users:
+        discord_id = user['discord_id']
+        attendance = user['attendance']
+        missed_standup = user['missed_standup']
+
+        if discord_id in present_users:
+            attendance += 1
+        else:
+            missed_standup += 1
+            insult_tasks.append(get_insult(discord_id))
+
+        karma_score = attendance - missed_standup
+        member = guild.get_member(discord_id)
+        username = member.display_name if member else f"User ID: {discord_id}"
+        karma_output += f"👤 **{username}**\n"
+        karma_output += f"- ✅ Attempted: {attendance}\n"
+        karma_output += f"- ❌ Missed: {missed_standup}\n"
+        karma_output += f"- ⚖️ Karma Score: {karma_score}\n\n"
+
+    insults = await asyncio.gather(*insult_tasks)
+    for discord_id, insult in insults:
+        member = guild.get_member(discord_id)
+        username = member.display_name if member else f"User ID: {discord_id}"
+        karma_output += f"**{username}**, {insult}\n"
+
+    await ctx.send(karma_output)
+
+async def get_insult(discord_id):
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://evilinsult.com/generate_insult.php?lang=en&type=text') as response:
+            if response.status == 200:
+                insult = await response.text()
+                return (discord_id, insult)
+            else:
+                return (discord_id, "You're absent, shame on you!")
+@bot.command(name='undo_karma', help='Undo the last karma command')
+async def undo_karma(ctx):
+    guild = ctx.guild
+    guild_id = guild.id
+
+    if guild_id not in last_karma_updates:
+        await ctx.send("No karma command to undo.")
+        return
+
+    updates = last_karma_updates[guild_id]
+    present_users = updates['present_users']
+    absent_users = updates['absent_users']
+
+    # Revert attendance for present users
+    if present_users:
+        update_present_query = """
+        UPDATE users
+        SET attendance = attendance - 1
+        WHERE discord_id = ANY(:present_user_ids)
+        """
+        await execute_query(update_present_query, {'present_user_ids': present_users})
+
+    # Revert missed_standup for absent users
+    if absent_users:
+        update_absent_query = """
+        UPDATE users
+        SET missed_standup = missed_standup - 1
+        WHERE discord_id = ANY(:absent_user_ids)
+        """
+        await execute_query(update_absent_query, {'absent_user_ids': absent_users})
+
+    await ctx.send("The last karma command has been undone.")
+
+    # Remove the entry from the dictionary
+    del last_karma_updates[guild_id]
+
+@bot.command(name='karmascore', help='Display karma scores for all users')
+async def karmascore(ctx):
+    guild = ctx.guild
+
+    # Fetch all users information from the database
+    query = """
+    SELECT discord_id, attendance, missed_standup FROM users WHERE guild_id = :guild_id
+    """
+    params = {'guild_id': guild.id}
+    all_users = await fetch_query(query, params)
+
+    if not all_users:
+        await ctx.send("No karma data found for this guild.")
+        return
+
+    # Prepare the karma output
+    karma_output = "📊 **Karma Scores for All Members** 📊\n\n"
+    karma_output += "```"
+    karma_output += "👤 User          | ✅ Attempted | ❌ Missed | ⚖️ Karma Score\n"
+    karma_output += "------------------------------------------------------------\n"
+
+    for user in all_users:
+        discord_id = user['discord_id']
+        attendance = user['attendance']
+        missed_standup = user['missed_standup']
+        karma_score = attendance - missed_standup
+
+        member = guild.get_member(discord_id)
+        username = member.display_name if member else f"User ID: {discord_id}"
+
+        # Format the output to align the columns
+        karma_output += f"{username:<15} | {attendance:<12} | {missed_standup:<9} | {karma_score:<12}\n"
+
+    karma_output += "```"
+
+    await ctx.send(karma_output)
+
+
+
+
 
 def run():
   app.run(host='0.0.0.0', port=8080)
