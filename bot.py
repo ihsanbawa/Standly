@@ -949,15 +949,11 @@ async def discord_id(ctx, user: discord.Member = None):
 
 
 async def record_attendance(guild, present_user_ids):
-    # Fetch all users in the guild
-    query = """
-  SELECT discord_id, attendance, missed_standup FROM users WHERE guild_id = :guild_id
-  """
-    params = {'guild_id': guild.id}
-    all_users = await fetch_query(query, params)
+    # Fetch all active users in the guild
+    all_users = await fetch_active_users(guild.id)
 
     if not all_users:
-        return "No users found in the database for this guild."
+        return "No active users found in the database for this guild."
 
     present_users = []
     absent_users = []
@@ -971,24 +967,23 @@ async def record_attendance(guild, present_user_ids):
     # Update attendance for present users
     if present_users:
         update_present_query = """
-      UPDATE users
-      SET attendance = attendance + 1
-      WHERE discord_id = ANY(:present_user_ids)
-      """
-        await execute_query(update_present_query,
-                            {'present_user_ids': present_users})
+        UPDATE users
+        SET attendance = attendance + 1
+        WHERE discord_id = ANY(:present_user_ids)
+        """
+        await execute_query(update_present_query, {'present_user_ids': present_users})
 
     # Update missed_standup for absent users
     if absent_users:
         update_absent_query = """
-      UPDATE users
-      SET missed_standup = missed_standup + 1
-      WHERE discord_id = ANY(:absent_user_ids)
-      """
-        await execute_query(update_absent_query,
-                            {'absent_user_ids': absent_users})
+        UPDATE users
+        SET missed_standup = missed_standup + 1
+        WHERE discord_id = ANY(:absent_user_ids)
+        """
+        await execute_query(update_absent_query, {'absent_user_ids': absent_users})
 
     return all_users, present_users, absent_users
+
 
 
 last_karma_updates = {}
@@ -996,8 +991,7 @@ last_karma_updates = {}
 
 @bot.command(
     name='karma',
-    help=
-    'Record attendance and missed standups, and display karma scores with random insults for absentees'
+    help='Record attendance and missed standups, and display karma scores with random insults for absentees'
 )
 async def karma(ctx):
     guild = ctx.guild
@@ -1015,12 +1009,10 @@ async def karma(ctx):
         return
 
     monitored_channel_name = guild_info_result[0]['monitored_channel_name']
-    monitored_channel = discord.utils.get(guild.voice_channels,
-                                          name=monitored_channel_name)
+    monitored_channel = discord.utils.get(guild.voice_channels, name=monitored_channel_name)
 
     if not monitored_channel:
-        await ctx.send(
-            f"Monitored voice channel '{monitored_channel_name}' not found.")
+        await ctx.send(f"Monitored voice channel '{monitored_channel_name}' not found.")
         return
 
     present_user_ids = {member.id for member in monitored_channel.members}
@@ -1071,6 +1063,8 @@ async def karma(ctx):
     await ctx.send(karma_output)
 
 
+
+
 async def get_insult(discord_id):
     async with aiohttp.ClientSession() as session:
         async with session.get(
@@ -1083,7 +1077,7 @@ async def get_insult(discord_id):
                 return (discord_id, "You're absent, shame on you!")
 
 
-@bot.command(name='undo_karma', help='Undo the last karma command')
+@bot.command(name='undokarma', help='Undo the last karma command')
 async def undo_karma(ctx):
     guild = ctx.guild
     guild_id = guild.id
@@ -1103,8 +1097,7 @@ async def undo_karma(ctx):
         SET attendance = attendance - 1
         WHERE discord_id = ANY(:present_user_ids)
         """
-        await execute_query(update_present_query,
-                            {'present_user_ids': present_users})
+        await execute_query(update_present_query, {'present_user_ids': present_users})
 
     # Revert missed_standup for absent users
     if absent_users:
@@ -1113,8 +1106,7 @@ async def undo_karma(ctx):
         SET missed_standup = missed_standup - 1
         WHERE discord_id = ANY(:absent_user_ids)
         """
-        await execute_query(update_absent_query,
-                            {'absent_user_ids': absent_users})
+        await execute_query(update_absent_query, {'absent_user_ids': absent_users})
 
     await ctx.send("The last karma command has been undone.")
 
@@ -1122,16 +1114,13 @@ async def undo_karma(ctx):
     del last_karma_updates[guild_id]
 
 
+
 @bot.command(name='karmascores', help='Display karma scores for all users')
 async def karmascore(ctx):
     guild = ctx.guild
 
-    # Fetch all users information from the database
-    query = """
-    SELECT discord_id, attendance, missed_standup FROM users WHERE guild_id = :guild_id
-    """
-    params = {'guild_id': guild.id}
-    all_users = await fetch_query(query, params)
+    # Fetch all active users information from the database
+    all_users = await fetch_active_users(guild.id)
 
     if not all_users:
         await ctx.send("No karma data found for this guild.")
@@ -1158,6 +1147,20 @@ async def karmascore(ctx):
     karma_output += "```"
 
     await ctx.send(karma_output)
+
+@bot.command(name='resetkarma', help='Reset karma metrics (attendance and missed standups) for all users')
+async def reset_karma(ctx):
+    guild_id = ctx.guild.id
+
+    # Reset the karma metrics for all users in the guild
+    reset_karma_query = """
+    UPDATE users
+    SET attendance = 0, missed_standup = 0
+    WHERE guild_id = :guild_id;
+    """
+    await execute_query(reset_karma_query, {'guild_id': guild_id})
+
+    await ctx.send("Karma metrics have been reset for all users in this guild.")
 
 
 @bot.command(name='hiatus', help='Toggle hiatus status for a user')
