@@ -568,15 +568,22 @@ async def get_task_summary(user_id, database):
 
     completed_tasks = await fetch_completed_tasks_from_todoist(todoist_token)
     today_tasks = await fetch_tasks_from_todoist(todoist_token, "today")
+    overdue_tasks = await fetch_tasks_from_todoist(todoist_token, "overdue")  # Fetch overdue tasks
 
     completed_tasks_str = "\n".join([
         f"✅ {task['content']}" for task in completed_tasks
     ]) if completed_tasks else "No tasks completed yesterday."
+
     today_tasks_str = "\n".join([
         f"🕒 {task[0]}" for task in today_tasks
     ]) if today_tasks else "You're all clear for today!"
 
-    return completed_tasks_str, today_tasks_str
+    overdue_tasks_str = "\n".join([
+        f"⚠️ {task[0]}" for task in overdue_tasks
+    ]) if overdue_tasks else None  # Only include if there are overdue tasks
+
+    return completed_tasks_str, today_tasks_str, overdue_tasks_str
+
 
 
 async def create_habit_embed(user_id, database):
@@ -597,14 +604,18 @@ async def create_habit_embed(user_id, database):
     return habit_embed
 
 
-def format_task_message(completed_tasks_str, today_tasks_str):
+def format_task_message(completed_tasks_str, today_tasks_str, overdue_tasks_str=None):
     base_message = "🎯 **Completed Tasks Yesterday:**\n"
     additional_message = "\n🚀 **Today's Tasks:**\n"
-    available_length = 2000 - len(base_message) - len(
-        additional_message
-    ) - 100  # 100 characters reserved for potential truncation message
+    overdue_message = "\n⏰ **Overdue Tasks:**\n" if overdue_tasks_str else ""
+    available_length = 2000 - len(base_message) - len(additional_message) - len(overdue_message) - 100  # 100 characters reserved for potential truncation message
 
-    if len(completed_tasks_str) + len(today_tasks_str) > available_length:
+    if overdue_tasks_str:
+        full_message = f"{base_message}{completed_tasks_str}\n{overdue_message}{overdue_tasks_str}\n{additional_message}{today_tasks_str}"
+    else:
+        full_message = f"{base_message}{completed_tasks_str}\n{additional_message}{today_tasks_str}"
+
+    if len(full_message) > 2000:
         # Calculate how much space we can use for each part
         half_length = available_length // 2
         truncated_completed_tasks = (
@@ -613,69 +624,18 @@ def format_task_message(completed_tasks_str, today_tasks_str):
         truncated_today_tasks = (
             today_tasks_str[:half_length] +
             '...') if len(today_tasks_str) > half_length else today_tasks_str
+        truncated_overdue_tasks = (
+            overdue_tasks_str[:half_length] +
+            '...') if len(overdue_tasks_str) > half_length else overdue_tasks_str
 
-        message = f"{base_message}{truncated_completed_tasks}\n{additional_message}{truncated_today_tasks}\n*Not all tasks are displayed due to message length limits.*"
+        if overdue_tasks_str:
+            message = f"{base_message}{truncated_completed_tasks}\n{overdue_message}{truncated_overdue_tasks}\n{additional_message}{truncated_today_tasks}\n*Not all tasks are displayed due to message length limits.*"
+        else:
+            message = f"{base_message}{truncated_completed_tasks}\n{additional_message}{truncated_today_tasks}\n*Not all tasks are displayed due to message length limits.*"
     else:
-        message = f"{base_message}{completed_tasks_str}\n{additional_message}{today_tasks_str}"
+        message = full_message
 
     return message
-
-
-@bot.command(name='t', help='Send your daily update')
-async def daily_update(ctx):
-    if not isinstance(ctx.channel, discord.DMChannel):
-        await ctx.send("This command can only be used in DMs.")
-        return
-
-    user_id = ctx.author.id  # Get the user ID of the person sending the command
-    user_info = await fetch_user_info(user_id, database)
-    if not user_info:
-        await ctx.send("Could not find your user information in the database.")
-        return
-
-    # Assuming you have a method to fetch or create a thread for the user
-    guild_id = user_info['guild_id']
-    guild = bot.get_guild(guild_id)
-    if not guild:
-        await ctx.send(
-            "Could not find the guild associated with your user information.")
-        return
-
-    guild_info_result = await fetch_query(
-        """
-        SELECT monitored_channel_name
-        FROM guilds
-        WHERE guild_id = :guild_id;
-        """, {"guild_id": guild_id})
-    if not guild_info_result or len(guild_info_result) == 0:
-        await ctx.send("Monitored channel not set for the associated guild.")
-        return
-
-    monitored_channel_name = guild_info_result[0]['monitored_channel_name']
-    channel = discord.utils.get(guild.text_channels,
-                                name=monitored_channel_name)
-    if not channel:
-        await ctx.send(
-            f"Monitored text channel '{monitored_channel_name}' not found in the associated guild."
-        )
-        return
-
-    thread = await get_or_create_thread(channel, ctx.author.display_name)
-
-    completed_tasks_str, today_tasks_str = await get_task_summary(
-        user_id, database)
-    if not completed_tasks_str:  # This will be None if the token wasn't found
-        await thread.send(today_tasks_str)  # This contains the error message
-        return
-
-    # Format the task message using the helper function
-    task_message = f"🌟 **Daily Update for {ctx.author.name}** 🌟\n\n"
-    task_message += format_task_message(completed_tasks_str, today_tasks_str)
-    await thread.send(task_message)  # Send the task summary in the thread
-
-    # Create and send the habit tracker embed
-    habit_embed = await create_habit_embed(user_id, database)
-    await thread.send(embed=habit_embed)
 
 
 async def fetch_subscribed_users():
@@ -732,8 +692,7 @@ async def set_channel(ctx, *, channel_name: str):
         await ctx.send(f"No voice channel named '{channel_name}' found.")
 
 
-async def direct_daily_update(member: discord.Member,
-                              channel: discord.TextChannel):
+async def direct_daily_update(member: discord.Member, channel: discord.TextChannel):
     print('Running daily command')
     user_info = await fetch_user_info(member.id, database)
     if not user_info:
@@ -749,18 +708,21 @@ async def direct_daily_update(member: discord.Member,
 
     thread = await get_or_create_thread(channel, member.display_name)
 
-    completed_tasks_str, today_tasks_str = await get_task_summary(
+    completed_tasks_str, today_tasks_str, overdue_tasks_str = await get_task_summary(
         member.id, database)
     if not completed_tasks_str:  # This will be None if the token wasn't found
         await thread.send(today_tasks_str)  # This contains the error message
         return
 
     task_message = f"🌟 **Daily Update for {member.display_name}** 🌟\n\n"
-    task_message += format_task_message(completed_tasks_str, today_tasks_str)
+    task_message += format_task_message(completed_tasks_str, today_tasks_str, overdue_tasks_str)
+
     await thread.send(task_message)
 
     habit_embed = await create_habit_embed(member.id, database)
     await thread.send(embed=habit_embed)
+
+
 
 
 @bot.command(
